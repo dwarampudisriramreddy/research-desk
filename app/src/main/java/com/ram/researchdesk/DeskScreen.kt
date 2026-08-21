@@ -488,7 +488,7 @@ private fun PaperFilters(ui: DeskUiState, viewModel: DeskViewModel) {
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "${papers.size} of ${ui.papers.size} papers",
+            text = "${ui.filteredPapers.size} of ${ui.papers.size} papers",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -689,6 +689,7 @@ private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onCli
 // Gaps tab — coverage analysis
 // ---------------------------------------------------------------------------
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GapsTab(ui: DeskUiState) {
     val subject = ui.subject ?: return
@@ -759,6 +760,7 @@ private fun GapsTab(ui: DeskUiState) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PaperCoverageCard(paper: Paper, subjectKeywords: List<String>) {
     var expanded by remember { mutableStateOf(false) }

@@ -75,7 +75,7 @@ fun CurriculumPrompt(modifier: Modifier = Modifier, onGoToCurriculum: () -> Unit
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Icon(
-                    Icons.Default.School,
+                    Icons.Default.AutoAwesome,
                     contentDescription = null,
                     modifier = Modifier.size(48.dp),
                     tint = MaterialTheme.colorScheme.primary,
