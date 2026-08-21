@@ -2,6 +2,7 @@ package com.ram.researchdesk
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -80,18 +81,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private val TAB_NAMES = listOf(
-    "Papers", "Landscape", "Clusters", "Gaps",
-    "Projects", "Protocol", "Debug", "Chat",
+    "Papers", "Landscape", "Clusters",
+    "Protocol", "Debug", "Chat",
 )
 
 private const val TAB_PAPERS = 0
 private const val TAB_LANDSCAPE = 1
 private const val TAB_CLUSTERS = 2
-private const val TAB_GAPS = 3
-private const val TAB_PROJECTS = 4
-private const val TAB_PROTOCOL = 5
-private const val TAB_DEBUG = 6
-private const val TAB_CHAT = 7
+private const val TAB_PROTOCOL = 3
+private const val TAB_DEBUG = 4
+private const val TAB_CHAT = 5
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -163,14 +162,10 @@ fun DeskScreen(viewModel: DeskViewModel, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularProgressIndicator(
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(14.dp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
+                        ThinkingDots()
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = if (ui.llmReady) "AI analyzing gaps and projects..." else "Analyzing...",
+                            text = if (ui.llmReady) "AI thinking..." else "Analyzing...",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -320,11 +315,9 @@ private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel) {
                 }
             } else {
                 when (ui.tab) {
-                    TAB_LANDSCAPE -> LandscapeTab(ui = ui)
-                    TAB_PAPERS -> PapersTab(ui = ui)
-                    TAB_CLUSTERS -> ClustersTab(ui = ui)
-                    TAB_GAPS -> GapsTab(ui = ui)
-                    TAB_PROJECTS -> ProjectsTab(ui = ui, onGenerateProtocol = viewModel::generateProtocol)
+                    TAB_LANDSCAPE -> LandscapeTab(ui = ui, viewModel = viewModel)
+                    TAB_PAPERS -> PapersTab(ui = ui, viewModel = viewModel)
+                    TAB_CLUSTERS -> ClustersTab(ui = ui, viewModel = viewModel)
                     TAB_PROTOCOL -> ProtocolTab(ui = ui)
                 }
             }
@@ -337,7 +330,7 @@ private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun LandscapeTab(ui: DeskUiState) {
+private fun LandscapeTab(ui: DeskUiState, viewModel: DeskViewModel) {
     val subject = ui.subject ?: return
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -366,7 +359,12 @@ private fun LandscapeTab(ui: DeskUiState) {
                         Text("Research clusters", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(8.dp))
                         ui.clusters.forEach { c ->
-                            Column(Modifier.padding(bottom = 8.dp)) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.setFilterCluster(c.id) }
+                                    .padding(bottom = 8.dp),
+                            ) {
                                 Text(c.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                 Text(
                                     text = "${c.paperIds.size} papers \u00B7 ${c.evidence}",
@@ -416,20 +414,76 @@ private fun SearchTransparencyCard(meta: SearchMeta) {
 // Papers tab
 // ---------------------------------------------------------------------------
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PapersTab(ui: DeskUiState) {
-    if (ui.papers.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No records matched this retrieval.")
-        }
-        return
-    }
+private fun PapersTab(ui: DeskUiState, viewModel: DeskViewModel) {
+    val papers = ui.filteredPapers
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(ui.papers) { paper -> PaperCard(paper = paper) }
+        item {
+            PaperFilters(ui = ui, viewModel = viewModel)
+        }
+        if (papers.isEmpty()) {
+            item {
+                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Text("No papers match the current filters.")
+                }
+            }
+        } else {
+            items(papers) { paper -> PaperCard(paper = paper) }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PaperFilters(ui: DeskUiState, viewModel: DeskViewModel) {
+    val hasFilters = ui.filterClusterId != null || ui.filterDesign != null || ui.filterIndiaOnly
+    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            ui.clusters.forEach { c ->
+                FilterChip(
+                    selected = ui.filterClusterId == c.id,
+                    onClick = {
+                        viewModel.setFilterCluster(if (ui.filterClusterId == c.id) null else c.id)
+                    },
+                    label = { Text(c.name, fontSize = 10.sp) },
+                )
+            }
+            val designs = ui.papers.mapNotNull { it.studyDesign }.distinct().sorted()
+            designs.forEach { d ->
+                FilterChip(
+                    selected = ui.filterDesign == d,
+                    onClick = {
+                        viewModel.setFilterDesign(if (ui.filterDesign == d) null else d)
+                    },
+                    label = { Text(d, fontSize = 10.sp) },
+                )
+            }
+            FilterChip(
+                selected = ui.filterIndiaOnly,
+                onClick = { viewModel.toggleFilterIndia() },
+                label = { Text("India only", fontSize = 10.sp) },
+            )
+        }
+        if (hasFilters) {
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { viewModel.clearFilters() }) {
+                Text("Clear filters", fontSize = 11.sp)
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "${papers.size} of ${ui.papers.size} papers",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -523,12 +577,40 @@ private fun MiniBadge(text: String, container: Color) {
     }
 }
 
+@Composable
+private fun ThinkingDots() {
+    val dotCount = 3
+    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "thinking")
+    val activeDot by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = dotCount.toFloat(),
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = 900,
+            easing = androidx.compose.animation.core.LinearEasing,
+        ),
+        label = "dot",
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        repeat(dotCount) { i ->
+            val alpha = if (i == activeDot.toInt() % dotCount) 1f else 0.3f
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(
+                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = alpha),
+                        shape = RoundedCornerShape(50),
+                    ),
+            )
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Clusters tab
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ClustersTab(ui: DeskUiState) {
+private fun ClustersTab(ui: DeskUiState, viewModel: DeskViewModel) {
     if (ui.clusters.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Clusters appear after a retrieval.")
@@ -541,13 +623,19 @@ private fun ClustersTab(ui: DeskUiState) {
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(ui.clusters) { cluster -> ClusterCard(cluster = cluster, papersById = papersById) }
+        items(ui.clusters) { cluster ->
+            ClusterCard(cluster = cluster, papersById = papersById, onClick = {
+                viewModel.setFilterCluster(cluster.id)
+            })
+        }
     }
 }
 
 @Composable
-private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onClick: () -> Unit = {}) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+    ) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(cluster.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)

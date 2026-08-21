@@ -235,8 +235,29 @@ data class DeskUiState(
     val llmReady: Boolean = false,
     val chatSending: Boolean = false,
     val debugEntries: List<DebugEntry> = emptyList(),
+    val filterClusterId: String? = null,
+    val filterDesign: String? = null,
+    val filterIndiaOnly: Boolean = false,
 ) {
     val papers: List<Paper> get() = litResult?.papers ?: emptyList()
+
+    val filteredPapers: List<Paper> get() {
+        var list = papers
+        if (filterClusterId != null) {
+            val cluster = clusters.find { it.id == filterClusterId }
+            if (cluster != null) {
+                val ids = cluster.paperIds.toSet()
+                list = list.filter { it.id in ids }
+            }
+        }
+        if (filterDesign != null) {
+            list = list.filter { it.studyDesign.equals(filterDesign, ignoreCase = true) }
+        }
+        if (filterIndiaOnly) {
+            list = list.filter { it.mentionsIndia }
+        }
+        return list
+    }
 
     companion object {
         val DEFAULT_SOURCES: Set<String> = linkedSetOf(
@@ -301,6 +322,22 @@ class DeskViewModel(
     }
 
     fun selectTab(index: Int) = _uiState.update { it.copy(tab = index) }
+
+    fun setFilterCluster(clusterId: String?) = _uiState.update {
+        it.copy(filterClusterId = clusterId, tab = TAB_PAPERS)
+    }
+
+    fun setFilterDesign(design: String?) = _uiState.update {
+        it.copy(filterDesign = design)
+    }
+
+    fun toggleFilterIndia() = _uiState.update {
+        it.copy(filterIndiaOnly = !it.filterIndiaOnly)
+    }
+
+    fun clearFilters() = _uiState.update {
+        it.copy(filterClusterId = null, filterDesign = null, filterIndiaOnly = false)
+    }
 
     // --- Pipeline: search -> cluster -> analyze ------------------------------
 
