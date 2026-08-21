@@ -80,16 +80,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private val TAB_NAMES = listOf(
-    "Papers", "Landscape", "Clusters",
+    "Papers", "Landscape", "Clusters", "Gaps",
     "Protocol", "Debug", "Chat",
 )
 
 private const val TAB_PAPERS = 0
 private const val TAB_LANDSCAPE = 1
 private const val TAB_CLUSTERS = 2
-private const val TAB_PROTOCOL = 3
-private const val TAB_DEBUG = 4
-private const val TAB_CHAT = 5
+private const val TAB_GAPS = 3
+private const val TAB_PROTOCOL = 4
+private const val TAB_DEBUG = 5
+private const val TAB_CHAT = 6
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -321,6 +322,7 @@ private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel) {
                     TAB_LANDSCAPE -> LandscapeTab(ui = ui, viewModel = viewModel)
                     TAB_PAPERS -> PapersTab(ui = ui, viewModel = viewModel)
                     TAB_CLUSTERS -> ClustersTab(ui = ui, viewModel = viewModel)
+                    TAB_GAPS -> GapsTab(ui = ui)
                     TAB_PROTOCOL -> ProtocolTab(ui = ui)
                 }
             }
@@ -681,66 +683,145 @@ private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onCli
 }
 
 // ---------------------------------------------------------------------------
-// Gaps tab
+// Gaps tab — coverage analysis
 // ---------------------------------------------------------------------------
 
 @Composable
 private fun GapsTab(ui: DeskUiState) {
-    if (ui.gaps.isEmpty()) {
+    val subject = ui.subject ?: return
+    val papers = ui.papers
+    if (papers.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Gaps are inferred after retrieval.")
+            Text("Coverage analysis appears after retrieval.")
         }
         return
     }
+
+    val subjectKeywords = remember(subject) { subject.keywords.map { it.lowercase() } }
+    val coveredKeywords = remember(papers, subjectKeywords) {
+        buildSet {
+            papers.forEach { p ->
+                val blob = buildString {
+                    append(p.title)
+                    append(" ")
+                    append(p.abstract ?: "")
+                }.lowercase()
+                subjectKeywords.forEach { kw ->
+                    if (blob.contains(kw)) add(kw)
+                }
+            }
+        }
+    }
+    val notCovered = remember(subjectKeywords, coveredKeywords) {
+        subjectKeywords.filter { it !in coveredKeywords }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(ui.gaps) { gap -> GapCard(gap = gap) }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Text("Summary: all ${papers.size} papers", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Spacer(Modifier.height(8.dp))
+                    if (coveredKeywords.isNotEmpty()) {
+                        Text("Covered:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Color(0xFF2E7D32))
+                        Spacer(Modifier.height(4.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            coveredKeywords.forEach { kw ->
+                                Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF2E7D32).copy(alpha = 0.10f)) {
+                                    Text(kw, fontSize = 10.sp, color = Color(0xFF2E7D32), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                            }
+                        }
+                    }
+                    if (notCovered.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("Not covered:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(4.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            notCovered.forEach { kw ->
+                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                                    Text(kw, fontSize = 10.sp, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        items(papers) { paper -> PaperCoverageCard(paper = paper, subjectKeywords = subjectKeywords) }
     }
 }
 
 @Composable
-private fun GapCard(gap: Gap) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(
-                        text = gap.category.ifEmpty { "gap" },
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                }
-                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                    Text(
-                        text = gap.confidence,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                }
-                if (!gap.ugFeasible) {
-                    Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer) {
-                        Text(
-                            text = "not UG-feasible",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
+private fun PaperCoverageCard(paper: Paper, subjectKeywords: List<String>) {
+    var expanded by remember { mutableStateOf(false) }
+    val blob = remember(paper) {
+        buildString {
+            append(paper.title)
+            append(" ")
+            append(paper.abstract ?: "")
+        }.lowercase()
+    }
+    val covered = remember(blob, subjectKeywords) { subjectKeywords.filter { blob.contains(it) } }
+    val notCovered = remember(blob, subjectKeywords) { subjectKeywords.filter { !blob.contains(it) } }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        colors = CardDefaults.cardColors(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(14.dp),
+        ) {
+            Text(paper.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = listOfNotNull(paper.year?.toString(), paper.journal, paper.studyDesign).joinToString(" \u00B7 "),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(6.dp))
+            if (covered.isNotEmpty()) {
+                Text("Covered:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Color(0xFF2E7D32))
+                Spacer(Modifier.height(2.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    covered.forEach { kw ->
+                        Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF2E7D32).copy(alpha = 0.10f)) {
+                            Text(kw, fontSize = 9.sp, color = Color(0xFF2E7D32), modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+                        }
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Text(gap.statement, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            if (gap.candidateQuestion.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Text(gap.candidateQuestion, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (gap.feasibilityNote.isNotEmpty()) {
+            if (notCovered.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text(gap.feasibilityNote, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Not covered:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(2.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    notCovered.forEach { kw ->
+                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                            Text(kw, fontSize = 9.sp, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+                        }
+                    }
+                }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = paper.abstract ?: "No abstract available.",
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
