@@ -12,9 +12,9 @@ enum class LlmModel(
         id = "qwen3-0.6b",
         displayName = "Qwen3 0.6B",
         shortName = "0.6B",
-        sizeMB = 328,
-        url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
-        filename = "Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm",
+        sizeMB = 474,
+        url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/qwen3_0_6b_mixed_int4.litertlm",
+        filename = "qwen3_0_6b_mixed_int4.litertlm",
     ),
     ;
 
