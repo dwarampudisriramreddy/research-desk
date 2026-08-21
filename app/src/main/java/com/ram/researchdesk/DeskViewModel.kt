@@ -27,8 +27,8 @@ import java.util.Calendar
 sealed class LlmRuntimeState {
     data object Checking : LlmRuntimeState()
     data object NotDownloaded : LlmRuntimeState()
-    data class Downloading(val progress: DownloadProgress) : LlmRuntimeState()
-    data object Initializing : LlmRuntimeState()
+    data class Downloading(val progress: DownloadProgress, val model: LlmModel) : LlmRuntimeState()
+    data class Initializing(val model: LlmModel) : LlmRuntimeState()
     data object Ready : LlmRuntimeState()
     data class Error(val message: String) : LlmRuntimeState()
 }
@@ -83,10 +83,10 @@ object LlmRuntime {
                     return@launch
                 }
                 debugLog.log("LLM", "=== MODEL DOWNLOAD START: ${model.displayName} (${model.sizeMB} MB) ===")
-                _state.value = LlmRuntimeState.Downloading(DownloadProgress(0, 1))
+                _state.value = LlmRuntimeState.Downloading(DownloadProgress(0, 1), model)
                 LlmNotificationService.startDownload(app)
                 val result = ModelDownloader.download(app, model) { progress ->
-                    _state.value = LlmRuntimeState.Downloading(progress)
+                    _state.value = LlmRuntimeState.Downloading(progress, model)
                     LlmNotificationService.updateProgress(
                         app,
                         (progress.percent * 100).toInt(),
@@ -106,7 +106,7 @@ object LlmRuntime {
             }
 
             // Init engine
-            _state.value = LlmRuntimeState.Initializing
+            _state.value = LlmRuntimeState.Initializing(model)
             LlmNotificationService.markInit(app)
             debugLog.log("LLM", "=== LLM INITIALIZATION START: ${model.displayName} ===")
             val eng = LlmEngine(app)
@@ -144,7 +144,7 @@ object LlmRuntime {
         eng.stopResponse()
         eng.close()
         engineRef = null
-        _state.value = LlmRuntimeState.Initializing
+        _state.value = LlmRuntimeState.Initializing(loadedModel ?: LlmModel.DEFAULT)
     }
 
     /** Stop any in-progress inference without releasing the engine. */

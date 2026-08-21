@@ -135,7 +135,22 @@ fun HomeScreen(onOpenDesk: (yearId: String, subjectId: String) -> Unit) {
                     },
                 )
             }
-            item { LlmCard(state = llmState, model = selectedModel, loadedModel = loadedModel, onRetry = { scope.launch { LlmRuntime.ensureReady(context) } }) }
+            item {
+                LlmModel.entries.forEach { model ->
+                    ModelStatusCard(
+                        thisModel = model,
+                        llmState = llmState,
+                        loadedModel = loadedModel,
+                        onRetry = { scope.launch { LlmRuntime.ensureReady(context) } },
+                        onSelect = {
+                            selectedModel = model
+                            ModelDownloader.setSelectedModel(context, model)
+                            LlmRuntime.startInit(context, autoDownload = true, model = model)
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
             item {
                 Text(
                     text = "Open a year, pick a subject",
@@ -286,63 +301,25 @@ private fun Pill(label: String) {
 }
 
 // ---------------------------------------------------------------------------
-// Download progress card — isolated to prevent flickering
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun DownloadingCard(state: LlmRuntimeState.Downloading, model: LlmModel) {
-    val percent = (state.progress.percent * 100).toInt()
-    val received = state.progress.bytesReceived / 1024 / 1024
-    val total = state.progress.totalBytes / 1024 / 1024
-    val speed = state.progress.bytesPerSecond / 1024
-
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(16.dp),
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "Downloading ${model.displayName} (\u2248${model.sizeMB} MB)...",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    "$percent%",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { state.progress.percent.coerceIn(0f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(4.dp)),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "$received / $total MB \u00B7 $speed KB/s \u00B7 keep the app open...",
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
-            )
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// LLM status card
+// Per-model status card
 // ---------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmModel?, onRetry: () -> Unit) {
-    when (state) {
-        is LlmRuntimeState.Ready -> {
+private fun ModelStatusCard(
+    thisModel: LlmModel,
+    llmState: LlmRuntimeState,
+    loadedModel: LlmModel?,
+    onRetry: () -> Unit,
+    onSelect: () -> Unit,
+) {
+    val isThisDownloading = llmState is LlmRuntimeState.Downloading && llmState.model == thisModel
+    val isThisInitializing = llmState is LlmRuntimeState.Initializing && llmState.model == thisModel
+    val isThisLoaded = llmState is LlmRuntimeState.Ready && loadedModel == thisModel
+    val isThisError = llmState is LlmRuntimeState.Error && loadedModel == thisModel
+
+    when {
+        isThisLoaded -> {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -353,14 +330,14 @@ private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmMod
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            "AI Model Ready \u00B7 ${LlmRuntime.backendName.ifEmpty { "?" }}",
+                            "${thisModel.displayName} ready",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            "${loadedModel?.displayName ?: model.displayName} loaded. AI chat available in desks.",
+                            "AI chat available in desks.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -369,9 +346,52 @@ private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmMod
             }
         }
 
-        is LlmRuntimeState.Downloading -> DownloadingCard(state, model)
+        isThisDownloading -> {
+            val dl = llmState
+            val percent = (dl.progress.percent * 100).toInt()
+            val received = dl.progress.bytesReceived / 1024 / 1024
+            val total = dl.progress.totalBytes / 1024 / 1024
+            val speed = dl.progress.bytesPerSecond / 1024
 
-        is LlmRuntimeState.Initializing, LlmRuntimeState.Checking -> {
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            "Downloading ${thisModel.displayName} (\u2248${thisModel.sizeMB} MB)...",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "$percent%",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { dl.progress.percent.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(4.dp)),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "$received / $total MB \u00B7 $speed KB/s \u00B7 keep the app open...",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
+                    )
+                }
+            }
+        }
+
+        isThisInitializing -> {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(
@@ -381,7 +401,7 @@ private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmMod
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = if (state is LlmRuntimeState.Initializing) "Preparing ${model.displayName}..." else "Checking AI model...",
+                        "Preparing ${thisModel.displayName}...",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -390,7 +410,7 @@ private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmMod
             }
         }
 
-        is LlmRuntimeState.Error -> {
+        isThisError -> {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                 onClick = onRetry,
@@ -404,7 +424,7 @@ private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmMod
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "AI model not loaded",
+                            "${thisModel.displayName} failed",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onErrorContainer,
@@ -418,14 +438,14 @@ private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmMod
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        state.message,
+                        (llmState as LlmRuntimeState.Error).message,
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
                         maxLines = 3,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Tap to retry. AI chat will be available in desks.",
+                        "Tap to retry.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.6f),
                     )
@@ -433,28 +453,25 @@ private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmMod
             }
         }
 
-        is LlmRuntimeState.NotDownloaded -> {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
+        else -> {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+                onClick = onSelect,
+            ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Info, contentDescription = null,
+                            Icons.Default.Download, contentDescription = null,
                             modifier = Modifier.size(20.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "AI chat requires a one-time model download.",
+                            "Download ${thisModel.displayName} (~${thisModel.sizeMB} MB)",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Button(onClick = onRetry) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Download ${model.displayName} (~${model.sizeMB} MB)")
                     }
                 }
             }
