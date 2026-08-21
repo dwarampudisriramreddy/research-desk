@@ -73,6 +73,10 @@ object ModelDownloader {
             "gemma-4-E2B-it.litertlm",
             "gemma-4-E2B-it-int4.litertlm",
             "gemma-4-E2B-it-gpu.litertlm",
+            "gemma-4-E4B-it-gpu.litertlm",
+            "gemma-4-E4B-it-gpu.litertlm.tmp",
+            "qwen3_0_6b_mixed_int4.litertlm",
+            "qwen3_0_6b_mixed_int4.litertlm.tmp",
         ).forEach { old ->
             val f = File(context.filesDir, old)
             if (f.exists()) { f.delete(); Log.d(TAG, "Cleaned stale: $old") }
