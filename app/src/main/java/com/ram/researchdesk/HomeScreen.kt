@@ -187,7 +187,7 @@ private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            "Gemma 1B loaded. AI chat available in desks.",
+                            "Qwen3 0.6B loaded. AI chat available in desks.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -207,7 +207,7 @@ private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "Downloading AI model (\u2248550 MB)...",
+                            "Downloading AI model (\u2248474 MB)...",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -320,7 +320,7 @@ private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
                     Button(onClick = onRetry) {
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Download AI model (~550 MB)")
+                        Text("Download AI model (~474 MB)")
                     }
                 }
             }

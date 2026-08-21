@@ -11,8 +11,8 @@ import java.net.URL
 
 private const val TAG = "ModelDownloader"
 private const val MODEL_URL =
-    "https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm"
-private const val MODEL_FILENAME = "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm"
+    "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/qwen3_0_6b_mixed_int4.litertlm"
+private const val MODEL_FILENAME = "qwen3_0_6b_mixed_int4.litertlm"
 
 data class DownloadProgress(
     val bytesReceived: Long,
@@ -44,6 +44,19 @@ object ModelDownloader {
         if (isDownloaded(context)) {
             Log.d(TAG, "Model already cached")
             return@withContext Result.success(modelPath(context))
+        }
+
+        // Clean up stale files from previous model versions
+        listOf(
+            "gemma3-1b-it-int4.litertlm",
+            "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm",
+            "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm.tmp",
+            "gemma-4-E2B-it.litertlm",
+            "gemma-4-E2B-it-int4.litertlm",
+            "gemma-4-E2B-it-gpu.litertlm",
+        ).forEach { old ->
+            val f = File(context.filesDir, old)
+            if (f.exists()) { f.delete(); Log.d(TAG, "Cleaned stale: $old") }
         }
 
         // Resume from partial download
@@ -132,7 +145,14 @@ object ModelDownloader {
         val tmp = File(context.filesDir, "$MODEL_FILENAME.tmp")
         if (tmp.exists()) tmp.delete()
         // Clean up old model files from previous versions
-        listOf("gemma3-1b-it-int4.litertlm", "gemma-4-E2B-it.litertlm", "gemma-4-E2B-it-int4.litertlm", "gemma-4-E2B-it-gpu.litertlm").forEach { old ->
+        listOf(
+            "gemma3-1b-it-int4.litertlm",
+            "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm",
+            "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm.tmp",
+            "gemma-4-E2B-it.litertlm",
+            "gemma-4-E2B-it-int4.litertlm",
+            "gemma-4-E2B-it-gpu.litertlm",
+        ).forEach { old ->
             val oldFile = File(context.filesDir, old)
             if (oldFile.exists()) {
                 oldFile.delete()

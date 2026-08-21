@@ -65,7 +65,7 @@ object LlmRuntime {
                     return@withLock false
                 }
                 debugLog.log("LLM", "=== MODEL DOWNLOAD START ===")
-                debugLog.log("LLM", "Model not cached, downloading (~550 MB)")
+                debugLog.log("LLM", "Model not cached, downloading (~474 MB)")
                 _state.value = LlmRuntimeState.Downloading(DownloadProgress(0, 1))
                 LlmNotificationService.startDownload(app)
                 val result = ModelDownloader.download(app) { progress ->
