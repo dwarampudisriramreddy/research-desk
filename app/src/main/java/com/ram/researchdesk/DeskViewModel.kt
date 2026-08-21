@@ -13,8 +13,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -40,29 +38,33 @@ object LlmRuntime {
     private val _state = MutableStateFlow<LlmRuntimeState>(LlmRuntimeState.Checking)
     val state: StateFlow<LlmRuntimeState> = _state.asStateFlow()
 
-    private val mutex = Mutex()
-    private var engineRef: LlmEngine? = null
-    private var appContext: Context? = null
+    @Volatile private var engineRef: LlmEngine? = null
+    private var initJob: kotlinx.coroutines.Job? = null
 
     val ready: Boolean get() = engineRef?.isReady == true
     var backendName: String = ""
         private set
 
-    /** Call from foreground to re-init engine if it was released on background. */
-    suspend fun ensureReady(context: Context, autoDownload: Boolean = true): Boolean =
-        mutex.withLock {
+    /**
+     * Kick off model download + engine init. Non-blocking — updates state as
+     * it progresses. Safe to call multiple times; second call while init is
+     * in progress is a no-op.
+     */
+    fun startInit(context: Context, autoDownload: Boolean = true) {
+        if (engineRef?.isReady == true) {
+            _state.value = LlmRuntimeState.Ready
+            return
+        }
+        if (initJob?.isActive == true) return  // already initializing
+
+        initJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             val app = context.applicationContext
-            appContext = app
 
-            if (engineRef?.isReady == true) {
-                _state.value = LlmRuntimeState.Ready
-                return@withLock true
-            }
-
+            // Download if needed
             if (!ModelDownloader.isDownloaded(app)) {
                 if (!autoDownload) {
                     _state.value = LlmRuntimeState.NotDownloaded
-                    return@withLock false
+                    return@launch
                 }
                 debugLog.log("LLM", "=== MODEL DOWNLOAD START ===")
                 debugLog.log("LLM", "Model not cached, downloading (~474 MB)")
@@ -81,54 +83,88 @@ object LlmRuntime {
                     debugLog.log("LLM", "=== DOWNLOAD FAILED: $failure ===")
                     _state.value = LlmRuntimeState.Error("Download failed: ${failure.message}")
                     LlmNotificationService.stop(app)
-                    return@withLock false
+                    return@launch
                 }
                 debugLog.log("LLM", "=== DOWNLOAD COMPLETE ===")
             } else {
                 debugLog.log("LLM", "Model already cached, skipping download")
             }
 
+            // Init engine
             _state.value = LlmRuntimeState.Initializing
             LlmNotificationService.markInit(app)
             debugLog.log("LLM", "=== LLM INITIALIZATION START ===")
             val eng = LlmEngine(app)
-            withContext(Dispatchers.Default) {
-                eng.initialize(ModelDownloader.modelPath(app))
-            }
-            return@withLock if (eng.isReady) {
+            eng.initialize(ModelDownloader.modelPath(app))
+
+            if (eng.isReady) {
                 engineRef?.close()
                 engineRef = eng
                 backendName = eng.backendName
                 debugLog.log("LLM", "=== ENGINE READY (${eng.backendName}) ===")
                 _state.value = LlmRuntimeState.Ready
                 LlmNotificationService.markReady(app, eng.backendName)
-                true
             } else {
                 eng.close()
                 debugLog.log("LLM", "=== LLM INIT FAILED: ${eng.error} ===")
                 _state.value = LlmRuntimeState.Error(eng.error ?: "Initialization failed")
                 LlmNotificationService.stop(app)
-                false
             }
         }
+    }
 
-    /** Release engine resources when app goes to background. Does NOT delete model file. */
+    /** Suspend version for callers that need to await readiness. */
+    suspend fun ensureReady(context: Context, autoDownload: Boolean = true): Boolean {
+        if (engineRef?.isReady == true) return true
+        startInit(context, autoDownload)
+        initJob?.join()
+        return engineRef?.isReady == true
+    }
+
+    /** Stop any in-progress inference and release engine when app backgrounds. */
     fun releaseOnBackground() {
         val eng = engineRef ?: return
         debugLog.log("LLM", "Releasing engine (background)")
+        eng.stopResponse()
         eng.close()
         engineRef = null
         _state.value = LlmRuntimeState.Initializing
     }
 
-    /** One-shot chat turn with a fresh system prompt (mirrors Flutter's per-call conversation). */
+    /** Stop any in-progress inference without releasing the engine. */
+    fun stopInference() {
+        engineRef?.stopResponse()
+    }
+
+    /** Streaming chat — results arrive via callback on the main thread. */
+    fun streamChat(
+        systemPrompt: String,
+        userMessage: String,
+        onToken: (String) -> Unit,
+        onDone: () -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        val eng = engineRef
+        if (eng == null || !eng.isReady) {
+            onError("LLM not ready")
+            return
+        }
+        eng.resetConversation(LlmConfig(systemPrompt = systemPrompt))
+        eng.sendMessage(
+            input = userMessage,
+            resultListener = { partial, done ->
+                if (done) onDone() else onToken(partial)
+            },
+            onError = onError,
+        )
+    }
+
+    /** Blocking chat — call from background coroutine only. */
     suspend fun chat(systemPrompt: String, userMessage: String): String {
         val eng = engineRef ?: throw IllegalStateException("LLM not initialized")
         if (!eng.isReady) throw IllegalStateException("LLM not ready")
         eng.resetConversation(LlmConfig(systemPrompt = systemPrompt))
-        return withContext(Dispatchers.Default) {
-            eng.sendMessageSync(userMessage)
-        }
+        return eng.sendMessageSync(userMessage)
     }
 
     fun deleteModel(context: Context) {
@@ -354,28 +390,51 @@ class DeskViewModel(
                 chatSending = true,
             )
         }
-        viewModelScope.launch {
-            try {
-                val systemPrompt = buildChatSystemPrompt(subj, _uiState.value)
-                debugLog.log("LLM", "Chat: \"${text.take(80)}${if (text.length > 80) "..." else ""}\"")
-                val response = LlmRuntime.chat(systemPrompt, text)
-                debugLog.log("LLM", "Chat response: ${response.length} chars")
-                _uiState.update {
-                    it.copy(
-                        chatMessages = it.chatMessages + DeskChatMessage("ai", response),
-                        chatSending = false,
-                    )
+        debugLog.log("LLM", "Chat: \"${text.take(80)}${if (text.length > 80) "..." else ""}\"")
+
+        val buffer = StringBuilder()
+        val systemPrompt = buildChatSystemPrompt(subj, _uiState.value)
+
+        LlmRuntime.streamChat(
+            systemPrompt = systemPrompt,
+            userMessage = text,
+            onToken = { token ->
+                buffer.append(token)
+                _uiState.update { st ->
+                    val msgs = st.chatMessages.toMutableList()
+                    val lastIdx = msgs.indexOfLast { it.role == "ai" }
+                    if (lastIdx >= 0) {
+                        msgs[lastIdx] = DeskChatMessage("ai", buffer.toString())
+                    } else {
+                        msgs.add(DeskChatMessage("ai", buffer.toString()))
+                    }
+                    st.copy(chatMessages = msgs)
                 }
-            } catch (e: Exception) {
-                debugLog.log("LLM", "Chat failed: $e")
-                _uiState.update {
-                    it.copy(
-                        chatMessages = it.chatMessages + DeskChatMessage("ai", "Error: ${e.message}"),
-                        chatSending = false,
-                    )
+            },
+            onDone = {
+                debugLog.log("LLM", "Chat response: ${buffer.length} chars")
+                _uiState.update { it.copy(chatSending = false) }
+            },
+            onError = { error ->
+                debugLog.log("LLM", "Chat failed: $error")
+                val finalText = if (buffer.isNotEmpty()) buffer.toString() else "Error: $error"
+                _uiState.update { st ->
+                    val msgs = st.chatMessages.toMutableList()
+                    val lastIdx = msgs.indexOfLast { it.role == "ai" }
+                    if (lastIdx >= 0) {
+                        msgs[lastIdx] = DeskChatMessage("ai", finalText)
+                    } else {
+                        msgs.add(DeskChatMessage("ai", finalText))
+                    }
+                    st.copy(chatMessages = msgs, chatSending = false)
                 }
-            }
-        }
+            },
+        )
+    }
+
+    fun stopChat() {
+        LlmRuntime.stopInference()
+        _uiState.update { it.copy(chatSending = false) }
     }
 
     // --- Debug tab actions ------------------------------------------------------

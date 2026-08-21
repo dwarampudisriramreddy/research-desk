@@ -1,6 +1,8 @@
 package com.ram.researchdesk
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Conversation
@@ -12,9 +14,12 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 private const val TAG = "LlmEngine"
+private const val INIT_TIMEOUT_MS = 60_000L
 
 data class LlmConfig(
     val topK: Int = 40,
@@ -26,17 +31,20 @@ data class LlmConfig(
 
 class LlmEngine(private val context: Context) {
 
-    private var engine: Engine? = null
-    private var conversation: Conversation? = null
-    private val initDeferred = CompletableDeferred<Boolean>()
-    var isReady = false
+    @Volatile private var engine: Engine? = null
+    @Volatile private var conversation: Conversation? = null
+    @Volatile var isReady = false
         private set
-    var error: String? = null
+    @Volatile var error: String? = null
         private set
-    var backendName: String = ""
+    @Volatile var backendName: String = ""
         private set
 
+    private val inferring = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     val ready: Boolean get() = isReady
+    val isInferenceRunning: Boolean get() = inferring.get()
 
     suspend fun initialize(modelPath: String, config: LlmConfig = LlmConfig()) {
         if (isReady) return
@@ -51,15 +59,19 @@ class LlmEngine(private val context: Context) {
             try {
                 engine?.close()
                 engine = null
+                Log.d(TAG, "Trying $name backend...")
 
-                Log.d(TAG, "Trying $name backend with model: $modelPath")
-                val engineConfig = EngineConfig(
-                    modelPath = modelPath,
-                    backend = backend,
-                    maxNumTokens = config.maxTokens,
-                )
-                val eng = Engine(engineConfig)
-                eng.initialize()
+                val eng = withContext(Dispatchers.IO) {
+                    val cfg = EngineConfig(
+                        modelPath = modelPath,
+                        backend = backend,
+                        maxNumTokens = config.maxTokens,
+                        cacheDir = context.cacheDir.absolutePath,
+                    )
+                    val e = Engine(cfg)
+                    e.initialize()
+                    e
+                }
 
                 val conv = eng.createConversation(
                     ConversationConfig(
@@ -68,19 +80,14 @@ class LlmEngine(private val context: Context) {
                             topP = config.topP.toDouble(),
                             temperature = config.temperature.toDouble(),
                         ),
-                        systemInstruction = if (config.systemPrompt.isNotEmpty()) {
-                            Contents.of(config.systemPrompt)
-                        } else null,
                     )
                 )
 
                 engine = eng
                 conversation = conv
                 isReady = true
-                error = null
                 backendName = name
                 Log.d(TAG, "=== ENGINE READY ($name) ===")
-                initDeferred.complete(true)
                 return
             } catch (e: Exception) {
                 Log.e(TAG, "$name init FAILED: ${e.message}")
@@ -89,14 +96,11 @@ class LlmEngine(private val context: Context) {
         }
         error = "All backends failed. $error"
         Log.e(TAG, "=== LLM INIT FAILED ===")
-        initDeferred.complete(false)
     }
 
-    suspend fun awaitReady(): Boolean = initDeferred.await()
-
     /**
-     * Streaming inference — exact pattern from Gallery's LlmChatModelHelper.runInference.
-     * Uses conversation.sendMessageAsync() with MessageCallback.
+     * Streaming inference with main-thread callbacks.
+     * Returns immediately; results arrive via resultListener on the main thread.
      */
     fun sendMessage(
         input: String,
@@ -104,13 +108,16 @@ class LlmEngine(private val context: Context) {
         onError: (String) -> Unit = {},
     ) {
         val conv = conversation
-        if (conv == null) {
+        if (conv == null || !isReady) {
             onError("Engine not initialized")
+            return
+        }
+        if (!inferring.compareAndSet(false, true)) {
+            onError("Already generating a response")
             return
         }
 
         try {
-            // Build contents list — text after optional images/audio, same as Gallery
             val contents = mutableListOf<Content>()
             if (input.trim().isNotEmpty()) {
                 contents.add(Content.Text(input))
@@ -120,37 +127,43 @@ class LlmEngine(private val context: Context) {
                 Contents.of(contents),
                 object : MessageCallback {
                     override fun onMessage(message: Message) {
-                        resultListener(message.toString(), false)
+                        val text = message.toString()
+                        mainHandler.post { resultListener(text, false) }
                     }
 
                     override fun onDone() {
-                        resultListener("", true)
+                        inferring.set(false)
+                        mainHandler.post { resultListener("", true) }
                     }
 
                     override fun onError(throwable: Throwable) {
+                        inferring.set(false)
                         Log.e(TAG, "Inference error", throwable)
-                        onError("Error: ${throwable.message}")
-                        resultListener("", true)
+                        mainHandler.post {
+                            onError("Error: ${throwable.message}")
+                            resultListener("", true)
+                        }
                     }
                 },
                 emptyMap<String, Any>(),
             )
         } catch (e: Exception) {
+            inferring.set(false)
             onError("Send failed: ${e.message}")
         }
     }
 
     /**
-     * Non-streaming inference using sendMessage.
+     * Blocking (non-streaming) inference — call from background thread only.
      */
-    suspend fun sendMessageSync(input: String): String {
+    suspend fun sendMessageSync(input: String): String = withContext(Dispatchers.IO) {
         val conv = conversation ?: throw IllegalStateException("Engine not initialized")
         val contents = mutableListOf<Content>()
         if (input.trim().isNotEmpty()) {
             contents.add(Content.Text(input))
         }
         val response = conv.sendMessage(Contents.of(contents))
-        return response.toString()
+        response.toString()
     }
 
     fun stopResponse() {
@@ -159,6 +172,7 @@ class LlmEngine(private val context: Context) {
         } catch (e: Exception) {
             Log.w(TAG, "Stop failed: ${e.message}")
         }
+        inferring.set(false)
     }
 
     fun resetConversation(config: LlmConfig = LlmConfig()) {
@@ -184,12 +198,9 @@ class LlmEngine(private val context: Context) {
     }
 
     fun close() {
-        try {
-            conversation?.close()
-        } catch (_: Exception) {}
-        try {
-            engine?.close()
-        } catch (_: Exception) {}
+        stopResponse()
+        try { conversation?.close() } catch (_: Exception) {}
+        try { engine?.close() } catch (_: Exception) {}
         engine = null
         conversation = null
         isReady = false
