@@ -1,6 +1,5 @@
 package com.ram.researchdesk
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,25 +19,28 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExposedDropdownMenuDefaults.menuAnchor
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,102 +62,6 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-
-/**
- * Port of flutter_app/lib/screens/home_screen.dart (with the subject picker of
- * year_screen.dart folded in as expandable year cards).
- */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-fun CurriculumPrompt(modifier: Modifier = Modifier, onGoToCurriculum: () -> Unit) {
-    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        androidx.compose.foundation.layout.Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.foundation.layout.Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Icon(
-                    Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    "Pick a subject to start",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    "Go to Curriculum to select a year and subject",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Button(onClick = onGoToCurriculum) {
-                    Text("Open Curriculum")
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-fun CurriculumScreen(modifier: Modifier = Modifier, onSelectSubject: (yearId: String, subjectId: String) -> Unit) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val llmState by LlmRuntime.state.collectAsState()
-    var expandedYearId by remember { mutableStateOf<String?>(null) }
-    val loadedModel = LlmRuntime.loadedModel
-
-    LaunchedEffect(Unit) {
-        LlmRuntime.ensureReady(context, autoDownload = true)
-    }
-
-    Scaffold(
-        modifier = modifier,
-        topBar = { TopAppBar(title = { Text("Curriculum") }) },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                ModelStatusCard(
-                    llmState = llmState,
-                    loadedModel = loadedModel,
-                    onRetry = { scope.launch { LlmRuntime.ensureReady(context) } },
-                )
-            }
-            items(YEARS, key = { it.id }) { y ->
-                YearCard(
-                    year = y,
-                    expanded = expandedYearId == y.id,
-                    onToggle = {
-                        expandedYearId = if (expandedYearId == y.id) null else y.id
-                    },
-                    onOpenSubject = { subjectId -> onSelectSubject(y.id, subjectId) },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun Pill(label: String) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-        )
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Subject picker → search box + subject dropdown
@@ -536,5 +442,3 @@ private fun ModelStatusCard(
 }
 
 // ---------------------------------------------------------------------------
-// Year + subject cards
-
