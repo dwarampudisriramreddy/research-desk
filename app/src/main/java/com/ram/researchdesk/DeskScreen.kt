@@ -75,18 +75,17 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private val TAB_NAMES = listOf(
-    "Landscape", "Papers", "Clusters", "Gaps",
+    "Papers", "Landscape", "Clusters", "Gaps",
     "Projects", "Protocol", "Debug", "Chat",
 )
 
-private const val TAB_LANDSCAPE = 0
-private const val TAB_PAPERS = 1
+private const val TAB_PAPERS = 0
+private const val TAB_LANDSCAPE = 1
 private const val TAB_CLUSTERS = 2
 private const val TAB_GAPS = 3
 private const val TAB_PROJECTS = 4
@@ -268,39 +267,8 @@ private fun SearchPanel(ui: DeskUiState, viewModel: DeskViewModel) {
                 }
             }
             Spacer(Modifier.height(6.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = ui.yearFrom.toString(),
-                    onValueChange = { v -> viewModel.setYearFrom(v.toIntOrNull() ?: 2021) },
-                    modifier = Modifier.width(84.dp),
-                    label = { Text("From") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                Spacer(Modifier.width(8.dp))
-                OutlinedTextField(
-                    value = ui.yearTo.toString(),
-                    onValueChange = { v -> viewModel.setYearTo(v.toIntOrNull() ?: CalendarYear.current) },
-                    modifier = Modifier.width(84.dp),
-                    label = { Text("To") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = "${ui.yearFrom}\u2013${ui.yearTo}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
         }
     }
-}
-
-private object CalendarYear {
-    val current: Int get() = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +351,7 @@ private fun LandscapeTab(ui: DeskUiState) {
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = "This desk starts with ${subject.name.lowercase()} as taught in this BDS year, " +
-                            "then retrieves live papers (2021\u2013present by default) from PubMed, Scopus, " +
+                            "then retrieves live papers from PubMed, Scopus, " +
                             "Web of Science, and open indexes.",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -222,8 +222,6 @@ data class DeskUiState(
     val year: Year? = null,
     val subject: Subject? = null,
     val query: String = "",
-    val yearFrom: Int = 2021,
-    val yearTo: Int = Calendar.getInstance().get(Calendar.YEAR),
     val sourcesEnabled: Set<String> = DEFAULT_SOURCES,
     val searching: Boolean = false,
     val analyzing: Boolean = false,
@@ -292,10 +290,6 @@ class DeskViewModel(
 
     fun setQuery(q: String) = _uiState.update { it.copy(query = q) }
 
-    fun setYearFrom(y: Int) = _uiState.update { it.copy(yearFrom = y) }
-
-    fun setYearTo(y: Int) = _uiState.update { it.copy(yearTo = y) }
-
     fun toggleSource(id: String) = _uiState.update {
         val next = if (id in it.sourcesEnabled) {
             if (it.sourcesEnabled.size <= 1) it.sourcesEnabled // keep at least one
@@ -344,8 +338,8 @@ class DeskViewModel(
                 val result = withContext(Dispatchers.IO) {
                     runLiteratureSearch(
                         query = q,
-                        yearFrom = snapshot.yearFrom,
-                        yearTo = snapshot.yearTo,
+                        yearFrom = 2021,
+                        yearTo = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR),
                         sources = snapshot.sourcesEnabled.toList(),
                         searchQueries = searchQueries,
                     )
