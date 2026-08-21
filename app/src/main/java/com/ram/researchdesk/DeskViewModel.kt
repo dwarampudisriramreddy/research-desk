@@ -325,23 +325,13 @@ class DeskViewModel(
             }
             try {
                 val snapshot = _uiState.value
-                // Expand query with LLM for better search results
-                val searchQueries = withContext(Dispatchers.IO) {
-                    expandSearchQuery(subj.name, q)
-                }
-                if (searchQueries != null) {
-                    debugLog.log("SEARCH", "Query expanded: PubMed=${searchQueries.pubmed.take(80)}...")
-                    debugLog.log("SEARCH", "Keywords: ${searchQueries.keywords.joinToString(", ")}")
-                } else {
-                    debugLog.log("SEARCH", "LLM unavailable, using raw query")
-                }
                 val result = withContext(Dispatchers.IO) {
                     runLiteratureSearch(
                         query = q,
                         yearFrom = 2021,
                         yearTo = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR),
                         sources = snapshot.sourcesEnabled.toList(),
-                        searchQueries = searchQueries,
+                        searchQueries = null,
                     )
                 }
                 val clusters = withContext(Dispatchers.Default) {
@@ -370,6 +360,11 @@ class DeskViewModel(
         if (LlmRuntime.ready) {
             gaps = analyzeGapsWithLlm(subj.name, papers, clusters)
             if (gaps.isEmpty()) gaps = buildGaps(subj, papers, clusters)
+
+            // GC pause between LLM calls to prevent OOM on low-RAM devices
+            System.gc()
+            kotlinx.coroutines.delay(500)
+
             projects = generateProjectsWithLlm(subj.name, gaps, papers)
             if (projects.isEmpty()) projects = buildProjects(subj, papers, gaps)
         } else {
