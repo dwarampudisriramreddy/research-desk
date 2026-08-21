@@ -41,8 +41,8 @@ class LlmEngine(private val context: Context) {
         error = null
 
         val backends = listOf(
-            "GPU" to Backend.gpu(),
-            "CPU" to Backend.cpu(threadCount = 4),
+            "GPU" to Backend.GPU(),
+            "CPU" to Backend.CPU(),
         )
 
         for ((name, backend) in backends) {
