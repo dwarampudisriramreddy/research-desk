@@ -2,14 +2,13 @@ package com.ram.researchdesk
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -24,7 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -58,6 +56,7 @@ class MainActivity : ComponentActivity() {
                     var selectedTab by remember { mutableIntStateOf(0) }
                     var selectedYearId by remember { mutableStateOf<String?>(null) }
                     var selectedSubjectId by remember { mutableStateOf<String?>(null) }
+                    val savedIdeas = remember { mutableStateOf<List<ProjectIdea>>(emptyList()) }
 
                     val hasDesk = selectedYearId != null && selectedSubjectId != null
 
@@ -67,13 +66,13 @@ class MainActivity : ComponentActivity() {
                                 NavigationBarItem(
                                     selected = selectedTab == 0,
                                     onClick = { selectedTab = 0 },
-                                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                                    label = { Text("Home") },
+                                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                                    label = { Text("Desk") },
                                 )
                                 NavigationBarItem(
                                     selected = selectedTab == 1,
                                     onClick = { selectedTab = 1 },
-                                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                                    icon = { Icon(Icons.Default.FavoriteBorder, contentDescription = null) },
                                     label = { Text("Curriculum") },
                                 )
                             }
@@ -86,21 +85,31 @@ class MainActivity : ComponentActivity() {
                                         key = "desk-${selectedYearId!!}-${selectedSubjectId!!}",
                                         factory = DeskViewModel.factory(application, selectedYearId!!, selectedSubjectId!!),
                                     )
-                                    DeskScreen(viewModel = vm, modifier = Modifier.padding(innerPadding))
-                                } else {
-                                    CurriculumPrompt(
+                                    DeskScreen(
+                                        viewModel = vm,
                                         modifier = Modifier.padding(innerPadding),
-                                        onGoToCurriculum = { selectedTab = 1 },
+                                        onSaveIdea = { idea ->
+                                            if (savedIdeas.value.none { it.title == idea.title }) {
+                                                savedIdeas.value = savedIdeas.value + idea
+                                            }
+                                        },
+                                    )
+                                } else {
+                                    SubjectPicker(
+                                        modifier = Modifier.padding(innerPadding),
+                                        onSelect = { yearId, subjectId ->
+                                            selectedYearId = yearId
+                                            selectedSubjectId = subjectId
+                                        },
                                     )
                                 }
                             }
                             1 -> {
-                                CurriculumScreen(
+                                SavedIdeasScreen(
                                     modifier = Modifier.padding(innerPadding),
-                                    onSelectSubject = { yearId, subjectId ->
-                                        selectedYearId = yearId
-                                        selectedSubjectId = subjectId
-                                        selectedTab = 0
+                                    savedIdeas = savedIdeas.value,
+                                    onRemove = { idea ->
+                                        savedIdeas.value = savedIdeas.value.filter { it.title != idea.title }
                                     },
                                 )
                             }

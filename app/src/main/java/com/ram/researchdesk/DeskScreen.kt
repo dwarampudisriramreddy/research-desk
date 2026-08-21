@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -95,7 +96,7 @@ private const val TAB_CHAT = 7
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: () -> Unit = {}) {
+fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: () -> Unit = {}, onSaveIdea: (ProjectIdea) -> Unit = {}) {
     val ui by viewModel.uiState.collectAsState()
     val subject = ui.subject
 
@@ -204,7 +205,7 @@ fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: 
                 if (ui.error != null && ui.litResult == null) {
                     ErrorView(error = ui.error!!, onRetry = viewModel::runSearch)
                 } else {
-                    TabBody(ui = ui, viewModel = viewModel)
+                    TabBody(ui = ui, viewModel = viewModel, onSaveIdea = onSaveIdea)
                 }
             }
         }
@@ -306,7 +307,7 @@ private fun SourceStatusRow(ui: DeskUiState) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel) {
+private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel, onSaveIdea: (ProjectIdea) -> Unit = {}) {
     when (ui.tab) {
         TAB_DEBUG -> DebugTab(ui = ui, viewModel = viewModel)
         TAB_CHAT -> ChatTab(ui = ui, viewModel = viewModel)
@@ -325,7 +326,7 @@ private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel) {
                     TAB_PAPERS -> PapersTab(ui = ui, viewModel = viewModel)
                     TAB_CLUSTERS -> ClustersTab(ui = ui, viewModel = viewModel)
                     TAB_GAPS -> GapsTab(ui = ui)
-                    TAB_PROJECTS -> ProjectsTab(ui = ui, viewModel = viewModel)
+                    TAB_PROJECTS -> ProjectsTab(ui = ui, viewModel = viewModel, onSaveIdea = onSaveIdea)
                     TAB_PROTOCOL -> ProtocolTab(ui = ui)
                 }
             }
@@ -908,7 +909,7 @@ private fun PaperCoverageCard(paper: Paper, subjectKeywords: List<String>) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ProjectsTab(ui: DeskUiState, viewModel: DeskViewModel) {
+private fun ProjectsTab(ui: DeskUiState, viewModel: DeskViewModel, onSaveIdea: (ProjectIdea) -> Unit = {}) {
     val ideas = ui.projectIdeas
     if (ideas.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -927,12 +928,12 @@ private fun ProjectsTab(ui: DeskUiState, viewModel: DeskViewModel) {
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(ideas) { idea -> ProjectIdeaCard(idea = idea) }
+        items(ideas) { idea -> ProjectIdeaCard(idea = idea, onSave = { onSaveIdea(idea) }) }
     }
 }
 
 @Composable
-private fun ProjectIdeaCard(idea: ProjectIdea) {
+private fun ProjectIdeaCard(idea: ProjectIdea, onSave: () -> Unit = {}) {
     var expanded by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
@@ -944,7 +945,12 @@ private fun ProjectIdeaCard(idea: ProjectIdea) {
                 .clickable { expanded = !expanded }
                 .padding(14.dp),
         ) {
-            Text(idea.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(idea.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                IconButton(onClick = onSave, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.FavoriteBorder, contentDescription = "Save idea", modifier = Modifier.size(18.dp))
+                }
+            }
             Spacer(Modifier.height(4.dp))
             if (idea.duration.isNotEmpty() || idea.design.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -22,9 +22,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -35,6 +37,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -54,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -151,6 +155,142 @@ private fun Pill(label: String) {
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Subject picker (shown when no subject selected)
+// ---------------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subjectId: String) -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val llmState by LlmRuntime.state.collectAsState()
+    var expandedYearId by remember { mutableStateOf<String?>(null) }
+    val loadedModel = LlmRuntime.loadedModel
+
+    LaunchedEffect(Unit) {
+        LlmRuntime.ensureReady(context, autoDownload = true)
+    }
+
+    Scaffold(
+        modifier = modifier,
+        topBar = { TopAppBar(title = { Text("Research Desk") }) },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                ModelStatusCard(
+                    llmState = llmState,
+                    loadedModel = loadedModel,
+                    onRetry = { scope.launch { LlmRuntime.ensureReady(context) } },
+                )
+            }
+            items(YEARS, key = { it.id }) { y ->
+                YearCard(
+                    year = y,
+                    expanded = expandedYearId == y.id,
+                    onToggle = {
+                        expandedYearId = if (expandedYearId == y.id) null else y.id
+                    },
+                    onOpenSubject = { subjectId -> onSelect(y.id, subjectId) },
+                )
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Saved ideas screen (Curriculum tab)
+// ---------------------------------------------------------------------------
+
+@Composable
+fun SavedIdeasScreen(modifier: Modifier = Modifier, savedIdeas: List<ProjectIdea>, onRemove: (ProjectIdea) -> Unit) {
+    Scaffold(
+        modifier = modifier,
+        topBar = { TopAppBar(title = { Text("Saved Ideas") }) },
+    ) { padding ->
+        if (savedIdeas.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.FavoriteBorder,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "No saved ideas yet",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Go to Desk > Projects and tap the heart icon to save ideas",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item {
+                    Text(
+                        text = "${savedIdeas.size} saved idea${if (savedIdeas.size == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                items(savedIdeas) { idea ->
+                    SavedIdeaCard(idea = idea, onRemove = { onRemove(idea) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedIdeaCard(idea: ProjectIdea, onRemove: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(idea.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.DeleteOutline, contentDescription = "Remove", modifier = Modifier.size(18.dp))
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            if (idea.design.isNotEmpty() || idea.duration.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (idea.design.isNotEmpty()) {
+                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                            Text(idea.design, fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                    }
+                    if (idea.duration.isNotEmpty()) {
+                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                            Text(idea.duration, fontSize = 10.sp, color = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(idea.rationale, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            Text(idea.researchQuestion, fontSize = 12.sp, fontStyle = FontStyle.Italic)
+        }
     }
 }
 
