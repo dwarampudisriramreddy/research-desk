@@ -8,14 +8,6 @@ enum class LlmModel(
     val url: String,
     val filename: String,
 ) {
-    QWEN3_0_6B(
-        id = "qwen3-0.6b",
-        displayName = "Qwen3 0.6B",
-        shortName = "0.6B",
-        sizeMB = 474,
-        url = "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/qwen3_0_6b_mixed_int4.litertlm",
-        filename = "qwen3_0_6b_mixed_int4.litertlm",
-    ),
     GEMMA4_E4B(
         id = "gemma4-e4b",
         displayName = "Gemma 4 E4B",
@@ -27,7 +19,7 @@ enum class LlmModel(
     ;
 
     companion object {
-        val DEFAULT = QWEN3_0_6B
+        val DEFAULT = GEMMA4_E4B
         fun fromId(id: String): LlmModel = entries.find { it.id == id } ?: DEFAULT
     }
 }
