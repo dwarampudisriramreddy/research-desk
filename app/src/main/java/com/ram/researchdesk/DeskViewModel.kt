@@ -208,6 +208,20 @@ data class DeskChatMessage(
     val text: String,
 )
 
+data class ProjectIdea(
+    val title: String,
+    val rationale: String,
+    val researchQuestion: String,
+    val hypothesis: String,
+    val design: String,
+    val population: String,
+    val primaryOutcome: String,
+    val methods: String,
+    val duration: String,
+    val feasibility: String,
+    val notCoveredBy: List<String>,
+)
+
 /** Source toggles shown in the search panel: id to display label. */
 val DESK_SOURCES: List<Pair<String, String>> = listOf(
     "pubmed" to "PubMed",
@@ -239,6 +253,7 @@ data class DeskUiState(
     val filterDesign: String? = null,
     val filterIndiaOnly: Boolean = false,
     val thinkingText: String = "",
+    val projectIdeas: List<ProjectIdea> = emptyList(),
 ) {
     val papers: List<Paper> get() = litResult?.papers ?: emptyList()
 
@@ -425,6 +440,147 @@ class DeskViewModel(
         }
 
         _uiState.update { it.copy(gaps = gaps, projects = projects, analyzing = false, thinkingText = "") }
+    }
+
+    // --- Project ideas from coverage gaps -----------------------------------
+
+    fun generateProjectIdeas() {
+        val subj = subject ?: return
+        val papers = _uiState.value.papers
+        if (papers.isEmpty()) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(analyzing = true, thinkingText = "Analyzing paper content for gaps...") }
+
+            val subjectKeywords = subj.keywords.map { it.lowercase() }
+            val paperSummaries = papers.map { p ->
+                val blob = buildString {
+                    append("TITLE: ${p.title}")
+                    append("\nABSTRACT: ${p.abstract ?: "No abstract"}")
+                    append("\nDESIGN: ${p.studyDesign ?: "unknown"}")
+                    append("\nYEAR: ${p.year ?: "unknown"}")
+                }
+                val covered = subjectKeywords.filter { blob.lowercase().contains(it) }
+                val notCovered = subjectKeywords.filter { !blob.lowercase().contains(it) }
+                Triple(p.title, covered, notCovered)
+            }
+
+            val allCovered = paperSummaries.flatMap { it.second }.distinct()
+            val allNotCovered = subjectKeywords.filter { kw -> paperSummaries.all { kw !in it.third } }
+
+            val paperBlock = papers.mapIndexed { i, p ->
+                "PAPER ${i + 1}: ${p.title}\n${p.abstract ?: "No abstract"}\nDesign: ${p.studyDesign ?: "unknown"}"
+            }.joinToString("\n\n")
+
+            if (LlmRuntime.ready) {
+                _uiState.update { it.copy(thinkingText = "Generating project ideas from gaps...") }
+                val ideas = generateProjectIdeasWithLlm(subj.name, paperBlock, allCovered, allNotCovered)
+                _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
+            } else {
+                val ideas = buildProjectIdeas(subj, papers, allCovered, allNotCovered)
+                _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
+            }
+        }
+    }
+
+    private suspend fun generateProjectIdeasWithLlm(
+        subjectName: String,
+        paperBlock: String,
+        covered: List<String>,
+        notCovered: List<String>,
+    ): List<ProjectIdea> {
+        val prompt = """
+You are a dental research methodology expert for BDS undergraduates in East Godavari, Andhra Pradesh, India.
+
+Below are the papers retrieved for $subjectName. Read each abstract carefully.
+
+PAPERS:
+$paperBlock
+
+Topics already covered by these papers: ${covered.joinToString(", ")}
+Topics NOT covered by any paper: ${notCovered.joinToString(", ")}
+
+Your task: generate 3-4 specific, original research project ideas that fill the gaps left by these papers.
+
+For each project idea, you must:
+1. Read what each paper actually studied (methods, outcomes, populations)
+2. Identify what NONE of the papers studied — specific variables, measurements, populations, or settings that are missing
+3. Design a project that a BDS undergraduate can complete in 8-12 weeks using only departmental equipment
+
+Return a JSON array of 3-4 project ideas:
+{
+  "title": "specific project title",
+  "rationale": "2-3 sentences: explain what the existing papers covered and what specific gap this project fills. Reference what was missing.",
+  "researchQuestion": "a precise, testable question with measurable variables",
+  "hypothesis": "directional hypothesis with expected direction of effect",
+  "design": "study design (cross-sectional, case-control, etc.)",
+  "population": "specific population and sampling strategy",
+  "primaryOutcome": "the main variable to measure, with instrument",
+  "methods": "step-by-step data collection plan",
+  "duration": "realistic timeline in weeks",
+  "feasibility": "what departmental equipment is needed",
+  "notCoveredBy": ["paper titles this project specifically addresses the gap of"]
+}
+
+RULES:
+- Each project MUST be based on what the papers did NOT cover — read the abstracts carefully
+- Do NOT repeat what papers already studied
+- Use instruments available in a dental college: calipers, pH strips, probes, ImageJ, questionnaires
+- No extra radiation, no new blood tests, no UTM
+- Be specific — name exact variables and measurements
+- Return ONLY the JSON array
+        """.trimIndent()
+
+        return try {
+            val raw = LlmRuntime.chat("You are a dental research expert. Output only valid JSON.", prompt)
+            val json = JSONObject(extractSearchJson(raw))
+            val arr = json.optJSONArray("ideas") ?: return emptyList()
+            (0 until arr.length()).mapNotNull { i ->
+                val obj = arr.optJSONObject(i) ?: return@mapNotNull null
+                ProjectIdea(
+                    title = obj.optString("title", ""),
+                    rationale = obj.optString("rationale", ""),
+                    researchQuestion = obj.optString("researchQuestion", ""),
+                    hypothesis = obj.optString("hypothesis", ""),
+                    design = obj.optString("design", ""),
+                    population = obj.optString("population", ""),
+                    primaryOutcome = obj.optString("primaryOutcome", ""),
+                    methods = obj.optString("methods", ""),
+                    duration = obj.optString("duration", ""),
+                    feasibility = obj.optString("feasibility", ""),
+                    notCoveredBy = obj.optJSONArray("notCoveredBy")?.let { a ->
+                        (0 until a.length()).map { a.getString(it) }
+                    } ?: emptyList(),
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("PROJECTS", "LLM project ideas failed: $e")
+            emptyList()
+        }
+    }
+
+    private fun buildProjectIdeas(
+        subj: Subject,
+        papers: List<Paper>,
+        covered: List<String>,
+        notCovered: List<String>,
+    ): List<ProjectIdea> {
+        if (notCovered.isEmpty()) return emptyList()
+        return notCovered.take(3).map { kw ->
+            ProjectIdea(
+                title = "Exploring $kw in ${subj.name.lowercase()}: a cross-sectional study",
+                rationale = "The retrieved papers covered ${covered.take(5).joinToString(", ")} but none addressed $kw. This gap justifies a focused investigation.",
+                researchQuestion = "What is the prevalence or association of $kw among dental patients/students?",
+                hypothesis = "There is a significant association between $kw and the primary outcome.",
+                design = "Cross-sectional study",
+                population = "Dental students or OPD patients at a dental college in East Godavari",
+                primaryOutcome = "Measurement of $kw using validated instruments",
+                methods = "Questionnaire + clinical measurement. Calibrate on 10 participants. Collect data over 6 weeks.",
+                duration = "8-10 weeks",
+                feasibility = "Departmental equipment: questionnaire, clinical instruments, basic statistical software",
+                notCoveredBy = papers.take(3).mapNotNull { it.title },
+            )
+        }
     }
 
     // --- Protocol -------------------------------------------------------------

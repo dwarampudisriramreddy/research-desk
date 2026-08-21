@@ -80,7 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private val TAB_NAMES = listOf(
-    "Papers", "Landscape", "Clusters", "Gaps",
+    "Papers", "Landscape", "Clusters", "Gaps", "Projects",
     "Protocol", "Debug", "Chat",
 )
 
@@ -88,9 +88,10 @@ private const val TAB_PAPERS = 0
 private const val TAB_LANDSCAPE = 1
 private const val TAB_CLUSTERS = 2
 private const val TAB_GAPS = 3
-private const val TAB_PROTOCOL = 4
-private const val TAB_DEBUG = 5
-private const val TAB_CHAT = 6
+private const val TAB_PROJECTS = 4
+private const val TAB_PROTOCOL = 5
+private const val TAB_DEBUG = 6
+private const val TAB_CHAT = 7
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -323,6 +324,7 @@ private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel) {
                     TAB_PAPERS -> PapersTab(ui = ui, viewModel = viewModel)
                     TAB_CLUSTERS -> ClustersTab(ui = ui, viewModel = viewModel)
                     TAB_GAPS -> GapsTab(ui = ui)
+                    TAB_PROJECTS -> ProjectsTab(ui = ui, viewModel = viewModel)
                     TAB_PROTOCOL -> ProtocolTab(ui = ui)
                 }
             }
@@ -828,17 +830,22 @@ private fun PaperCoverageCard(paper: Paper, subjectKeywords: List<String>) {
 }
 
 // ---------------------------------------------------------------------------
-// Projects tab
+// Projects tab — ideas from coverage gaps
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun ProjectsTab(ui: DeskUiState, onGenerateProtocol: (Project) -> Unit) {
-    if (ui.projects.isEmpty()) {
+private fun ProjectsTab(ui: DeskUiState, viewModel: DeskViewModel) {
+    val ideas = ui.projectIdeas
+    LaunchedEffect(ui.papers.size) {
+        if (ideas.isEmpty() && ui.papers.isNotEmpty()) {
+            viewModel.generateProjectIdeas()
+        }
+    }
+    if (ideas.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "Projects appear after a retrieval and gap pass.",
-                textAlign = TextAlign.Center,
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Analyzing papers for gaps...", textAlign = TextAlign.Center, fontSize = 13.sp)
+            }
         }
         return
     }
@@ -847,60 +854,62 @@ private fun ProjectsTab(ui: DeskUiState, onGenerateProtocol: (Project) -> Unit) 
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(ui.projects) { project -> ProjectCard(project = project, onGenerateProtocol = onGenerateProtocol) }
+        items(ideas) { idea -> ProjectIdeaCard(idea = idea) }
     }
 }
 
 @Composable
-private fun ProjectCard(project: Project, onGenerateProtocol: (Project) -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
-            Text(project.title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+private fun ProjectIdeaCard(idea: ProjectIdea) {
+    var expanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        colors = CardDefaults.cardColors(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(14.dp),
+        ) {
+            Text(idea.title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(
-                        text = project.domain,
-                        fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                }
-                if (project.totalScore > 0) {
-                    Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-                        Text(
-                            text = "Score ${project.totalScore}",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
+            if (idea.duration.isNotEmpty() || idea.design.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (idea.design.isNotEmpty()) {
+                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                            Text(idea.design, fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
+                    }
+                    if (idea.duration.isNotEmpty()) {
+                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                            Text(idea.duration, fontSize = 10.sp, color = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                        }
                     }
                 }
-                Text(
-                    text = "${project.durationWeeks} weeks \u00B7 ${project.costInr}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(idea.rationale, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            if (idea.notCoveredBy.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text("Addresses gap from:", fontSize = 10.sp, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                idea.notCoveredBy.take(3).forEach { t ->
+                    Text("\u2013 $t", fontSize = 10.sp, maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
 
-            ProtocolSection("Research question", project.researchQuestion)
-            ProtocolSection("Hypothesis", project.hypothesis)
-            ProtocolSection("Study design", project.studyDesign)
-            ProtocolSection("Population", project.population)
-            ProtocolSection("Primary outcome", project.primaryOutcome)
-            if (project.secondaryOutcomes.isNotEmpty()) {
-                ProtocolSection("Secondary outcomes", project.secondaryOutcomes.joinToString("; "))
-            }
-            ProtocolSection("Data collection", project.dataCollection)
-            ProtocolSection("Statistics", project.statistics)
-            ProtocolSection("Ethics", project.ethics)
-            if (project.limitations.isNotEmpty()) {
-                ProtocolSection("Limitations", project.limitations.joinToString("\n") { "\u2022 $it" })
-            }
-
-            Spacer(Modifier.height(10.dp))
-            androidx.compose.material3.Button(onClick = { onGenerateProtocol(project) }) {
-                Text("Generate 12-week protocol")
+            AnimatedVisibility(visible = expanded) {
+                Column {
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(Modifier.height(8.dp))
+                    ProtocolSection("Research question", idea.researchQuestion)
+                    ProtocolSection("Hypothesis", idea.hypothesis)
+                    ProtocolSection("Population", idea.population)
+                    ProtocolSection("Primary outcome", idea.primaryOutcome)
+                    ProtocolSection("Methods", idea.methods)
+                    ProtocolSection("Feasibility", idea.feasibility)
+                }
             }
         }
     }
