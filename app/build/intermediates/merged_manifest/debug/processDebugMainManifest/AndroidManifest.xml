@@ -10,6 +10,9 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <permission
         android:name="com.ram.researchdesk.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
@@ -24,6 +27,13 @@
         android:label="Research Desk"
         android:supportsRtl="true"
         android:theme="@style/Theme.ResearchDesk" >
+        <uses-native-library
+            android:name="libvndksupport.so"
+            android:required="false" />
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+
         <activity
             android:name="com.ram.researchdesk.MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
@@ -34,6 +44,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name="com.ram.researchdesk.LlmNotificationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <provider
             android:name="androidx.startup.InitializationProvider"
