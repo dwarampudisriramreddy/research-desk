@@ -123,7 +123,7 @@ object ModelDownloader {
                 tmpFile.outputStream()
             }
 
-            val buffer = ByteArray(8192)
+            val buffer = ByteArray(256 * 1024)
             var bytesRead: Int
             var totalRead = downloadedBytes
             val startTime = System.currentTimeMillis()
