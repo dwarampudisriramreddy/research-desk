@@ -103,20 +103,24 @@ object ModelDownloader {
             var totalRead = downloadedBytes
             val startTime = System.currentTimeMillis()
 
+            var lastNotifyTime = 0L
             while (input.read(buffer).also { bytesRead = it } != -1) {
                 output.write(buffer, 0, bytesRead)
                 totalRead += bytesRead
 
-                val elapsed = (System.currentTimeMillis() - startTime) / 1000.0
-                val bps = if (elapsed > 0) (totalRead / elapsed).toLong() else 0
-
-                onProgress(
-                    DownloadProgress(
-                        bytesReceived = totalRead,
-                        totalBytes = totalBytes,
-                        bytesPerSecond = bps,
+                val now = System.currentTimeMillis()
+                if (now - lastNotifyTime >= 250 || totalRead >= totalBytes) {
+                    lastNotifyTime = now
+                    val elapsed = (now - startTime) / 1000.0
+                    val bps = if (elapsed > 0) (totalRead / elapsed).toLong() else 0
+                    onProgress(
+                        DownloadProgress(
+                            bytesReceived = totalRead,
+                            totalBytes = totalBytes,
+                            bytesPerSecond = bps,
+                        )
                     )
-                )
+                }
             }
 
             output.flush()

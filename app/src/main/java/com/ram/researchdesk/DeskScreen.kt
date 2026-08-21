@@ -1055,9 +1055,10 @@ private val CHAT_SUGGESTIONS = listOf(
 private fun ChatTab(ui: DeskUiState, viewModel: DeskViewModel) {
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val chatMessages by viewModel.chatMessages.collectAsState()
 
-    LaunchedEffect(ui.chatMessages.size, ui.chatSending) {
-        val target = ui.chatMessages.size + (if (ui.chatSending) 0 else -1)
+    LaunchedEffect(chatMessages.size, ui.chatSending) {
+        val target = chatMessages.size + (if (ui.chatSending) 0 else -1)
         if (target >= 0) listState.animateScrollToItem(target.coerceAtLeast(0))
     }
 
@@ -1074,7 +1075,7 @@ private fun ChatTab(ui: DeskUiState, viewModel: DeskViewModel) {
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            if (ui.chatMessages.isEmpty()) {
+            if (chatMessages.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1113,7 +1114,7 @@ private fun ChatTab(ui: DeskUiState, viewModel: DeskViewModel) {
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    itemsIndexed(ui.chatMessages) { _, msg -> ChatBubble(msg = msg) }
+                    itemsIndexed(chatMessages) { _, msg -> ChatBubble(msg = msg) }
                     if (ui.chatSending) {
                         item {
                             Row(verticalAlignment = Alignment.CenterVertically) {

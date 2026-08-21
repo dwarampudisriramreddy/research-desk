@@ -1,19 +1,17 @@
 package com.ram.researchdesk
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Port of flutter_app/lib/services/debug_log.dart
- *
- * A process-wide debug log buffer with a broadcast stream, mirroring the
- * Dart singleton `debugLog` + StreamController.broadcast pattern.
- */
 data class DebugEntry(
     val tag: String,
     val message: String,
@@ -28,33 +26,49 @@ data class DebugEntry(
 object DebugLog {
 
     private val entriesList = mutableListOf<DebugEntry>()
+    private val pendingBatch = mutableListOf<DebugEntry>()
+    private val batchScope = CoroutineScope(Dispatchers.Default)
 
-    private val _stream = MutableSharedFlow<DebugEntry>(
+    private val _batchStream = MutableSharedFlow<List<DebugEntry>>(
         replay = 0,
-        extraBufferCapacity = 256,
+        extraBufferCapacity = 16,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
 
-    /** Snapshot of all buffered entries (oldest first). */
     val entries: List<DebugEntry>
         get() = synchronized(entriesList) { entriesList.toList() }
 
-    /** Broadcast stream of new entries. */
-    val stream: SharedFlow<DebugEntry> = _stream.asSharedFlow()
+    /** Emits batches of entries every ~300ms instead of every single entry. */
+    val batchStream: SharedFlow<List<DebugEntry>> = _batchStream.asSharedFlow()
+
+    init {
+        batchScope.launch {
+            while (true) {
+                delay(300)
+                val batch: List<DebugEntry>
+                synchronized(pendingBatch) {
+                    if (pendingBatch.isEmpty()) return@launch
+                    batch = pendingBatch.toList()
+                    pendingBatch.clear()
+                }
+                _batchStream.tryEmit(batch)
+            }
+        }
+    }
 
     fun log(tag: String, message: String) {
         val entry = DebugEntry(tag, message)
         synchronized(entriesList) { entriesList.add(entry) }
-        _stream.tryEmit(entry)
+        synchronized(pendingBatch) { pendingBatch.add(entry) }
     }
 
     fun clear() {
         synchronized(entriesList) { entriesList.clear() }
+        synchronized(pendingBatch) { pendingBatch.clear() }
     }
 
     fun export(): String =
         synchronized(entriesList) { entriesList.joinToString("\n") { it.toString() } }
 }
 
-/** Global accessor, mirroring `final debugLog = DebugLog()` in Dart. */
 val debugLog: DebugLog get() = DebugLog

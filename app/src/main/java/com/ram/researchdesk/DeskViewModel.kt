@@ -218,7 +218,6 @@ data class DeskUiState(
     val error: String? = null,
     val tab: Int = 0,
     val llmReady: Boolean = false,
-    val chatMessages: List<DeskChatMessage> = emptyList(),
     val chatSending: Boolean = false,
     val debugEntries: List<DebugEntry> = emptyList(),
 ) {
@@ -253,12 +252,15 @@ class DeskViewModel(
     )
     val uiState: StateFlow<DeskUiState> = _uiState.asStateFlow()
 
+    /** Chat messages are a separate stream — only ChatTab observes them. */
+    private val _chatMessages = MutableStateFlow<List<DeskChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<DeskChatMessage>> = _chatMessages.asStateFlow()
+
     init {
-        // Seed with existing entries, then stream new ones.
         _uiState.update { it.copy(debugEntries = DebugLog.entries) }
         viewModelScope.launch {
-            DebugLog.stream.collect { entry ->
-                _uiState.update { state -> state.copy(debugEntries = state.debugEntries + entry) }
+            DebugLog.batchStream.collect { batch ->
+                _uiState.update { state -> state.copy(debugEntries = state.debugEntries + batch) }
             }
         }
         viewModelScope.launch {
@@ -384,12 +386,8 @@ class DeskViewModel(
         val s = _uiState.value
         if (text.isEmpty() || s.chatSending || !s.llmReady) return
 
-        _uiState.update {
-            it.copy(
-                chatMessages = it.chatMessages + DeskChatMessage("user", text),
-                chatSending = true,
-            )
-        }
+        _chatMessages.update { it + DeskChatMessage("user", text) }
+        _uiState.update { it.copy(chatSending = true) }
         debugLog.log("LLM", "Chat: \"${text.take(80)}${if (text.length > 80) "..." else ""}\"")
 
         val buffer = StringBuilder()
@@ -400,15 +398,14 @@ class DeskViewModel(
             userMessage = text,
             onToken = { token ->
                 buffer.append(token)
-                _uiState.update { st ->
-                    val msgs = st.chatMessages.toMutableList()
-                    val lastIdx = msgs.indexOfLast { it.role == "ai" }
-                    if (lastIdx >= 0) {
-                        msgs[lastIdx] = DeskChatMessage("ai", buffer.toString())
-                    } else {
-                        msgs.add(DeskChatMessage("ai", buffer.toString()))
+                val current = _chatMessages.value
+                val lastIdx = current.lastIndex
+                if (lastIdx >= 0 && current[lastIdx].role == "ai") {
+                    _chatMessages.value = current.toMutableList().apply {
+                        set(lastIdx, DeskChatMessage("ai", buffer.toString()))
                     }
-                    st.copy(chatMessages = msgs)
+                } else {
+                    _chatMessages.update { it + DeskChatMessage("ai", buffer.toString()) }
                 }
             },
             onDone = {
@@ -418,16 +415,16 @@ class DeskViewModel(
             onError = { error ->
                 debugLog.log("LLM", "Chat failed: $error")
                 val finalText = if (buffer.isNotEmpty()) buffer.toString() else "Error: $error"
-                _uiState.update { st ->
-                    val msgs = st.chatMessages.toMutableList()
-                    val lastIdx = msgs.indexOfLast { it.role == "ai" }
-                    if (lastIdx >= 0) {
-                        msgs[lastIdx] = DeskChatMessage("ai", finalText)
-                    } else {
-                        msgs.add(DeskChatMessage("ai", finalText))
+                val current = _chatMessages.value
+                val lastIdx = current.lastIndex
+                if (lastIdx >= 0 && current[lastIdx].role == "ai") {
+                    _chatMessages.value = current.toMutableList().apply {
+                        set(lastIdx, DeskChatMessage("ai", finalText))
                     }
-                    st.copy(chatMessages = msgs, chatSending = false)
+                } else {
+                    _chatMessages.update { it + DeskChatMessage("ai", finalText) }
                 }
+                _uiState.update { it.copy(chatSending = false) }
             },
         )
     }
