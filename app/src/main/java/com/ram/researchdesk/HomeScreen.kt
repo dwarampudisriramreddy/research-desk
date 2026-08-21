@@ -33,7 +33,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -130,10 +129,7 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
                 maxLines = 4,
             )
 
-            ExposedDropdownMenuBox(
-                expanded = dropdownExpanded,
-                onExpandedChange = { dropdownExpanded = !dropdownExpanded },
-            ) {
+            Box {
                 OutlinedTextField(
                     value = selectedSubject ?: "",
                     onValueChange = {},
@@ -142,6 +138,11 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
                     placeholder = { Text("Select a subject") },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
                     modifier = Modifier.fillMaxWidth(),
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable { dropdownExpanded = true },
                 )
                 DropdownMenu(
                     expanded = dropdownExpanded,
