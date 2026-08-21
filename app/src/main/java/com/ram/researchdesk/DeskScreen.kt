@@ -371,14 +371,48 @@ private fun LandscapeTab(ui: DeskUiState, viewModel: DeskViewModel) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { viewModel.setFilterCluster(c.id) }
-                                    .padding(bottom = 8.dp),
+                                    .padding(bottom = 10.dp),
                             ) {
-                                Text(c.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                Text(
-                                    text = "${c.paperIds.size} papers \u00B7 ${c.evidence}",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(c.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = when (c.evidence) {
+                                            "high" -> Color(0xFF2E7D32).copy(alpha = 0.12f)
+                                            "moderate" -> MaterialTheme.colorScheme.tertiaryContainer
+                                            else -> MaterialTheme.colorScheme.surfaceContainerHighest
+                                        },
+                                    ) {
+                                        Text(
+                                            text = "${c.paperIds.size} papers \u00B7 ${c.evidence}",
+                                            fontSize = 10.sp,
+                                            color = when (c.evidence) {
+                                                "high" -> Color(0xFF2E7D32)
+                                                "moderate" -> MaterialTheme.colorScheme.onTertiaryContainer
+                                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        )
+                                    }
+                                }
+                                if (c.keywords.isNotEmpty()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = c.keywords.take(4).joinToString(", "),
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                if (c.potentialGaps.isNotEmpty()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = c.potentialGaps.first(),
+                                        fontSize = 11.sp,
+                                        fontStyle = FontStyle.Italic,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }
@@ -613,35 +647,51 @@ private fun ClustersTab(ui: DeskUiState, viewModel: DeskViewModel) {
 
 @Composable
 private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onClick: () -> Unit = {}) {
+    val memberPapers = cluster.paperIds.mapNotNull { papersById[it] }
+    val designs = memberPapers.mapNotNull { it.studyDesign }.distinct()
+    val countries = memberPapers.flatMap { it.countryCodes }.distinct()
+    val indiaCount = memberPapers.count { it.mentionsIndia }
+
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
     ) {
         Column(Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(cluster.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(cluster.name, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 Spacer(Modifier.width(8.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    color = when (cluster.evidence) {
+                        "high" -> Color(0xFF2E7D32).copy(alpha = 0.12f)
+                        "moderate" -> MaterialTheme.colorScheme.tertiaryContainer
+                        else -> MaterialTheme.colorScheme.surfaceContainerHighest
+                    },
                 ) {
                     Text(
                         text = cluster.evidence,
                         fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        color = when (cluster.evidence) {
+                            "high" -> Color(0xFF2E7D32)
+                            "moderate" -> MaterialTheme.colorScheme.onTertiaryContainer
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
             }
-            Spacer(Modifier.height(4.dp))
+
+            Spacer(Modifier.height(6.dp))
             Text(
-                text = "${cluster.paperIds.size} papers",
+                text = "${memberPapers.size} papers" +
+                    if (designs.isNotEmpty()) " \u00B7 ${designs.joinToString(", ")}" else "" +
+                    if (indiaCount > 0) " \u00B7 $indiaCount from India" else "",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             if (cluster.keywords.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     cluster.keywords.take(6).forEach { kw ->
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -655,6 +705,8 @@ private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onCli
 
             if (cluster.potentialGaps.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
+                Text("What's missing:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(2.dp))
                 cluster.potentialGaps.forEach { g ->
                     Text("\u2022 $g", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -667,17 +719,36 @@ private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onCli
                 }
             }
 
-            val memberTitles = cluster.paperIds.mapNotNull { papersById[it]?.title }.take(5)
-            if (memberTitles.isNotEmpty()) {
+            if (memberPapers.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(6.dp))
-                memberTitles.forEach { t ->
+                Text("Papers in this cluster:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                Spacer(Modifier.height(4.dp))
+                memberPapers.take(5).forEach { p ->
+                    Column(Modifier.padding(bottom = 6.dp)) {
+                        Text(
+                            text = p.title,
+                            fontSize = 11.sp,
+                            maxLines = 2,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            text = listOfNotNull(
+                                p.year?.toString(),
+                                p.journal,
+                                p.studyDesign,
+                            ).joinToString(" \u00B7 "),
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (memberPapers.size > 5) {
                     Text(
-                        text = "\u2013 $t",
-                        fontSize = 11.sp,
-                        maxLines = 2,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "+ ${memberPapers.size - 5} more papers",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
