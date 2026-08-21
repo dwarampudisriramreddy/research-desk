@@ -238,6 +238,7 @@ data class DeskUiState(
     val filterClusterId: String? = null,
     val filterDesign: String? = null,
     val filterIndiaOnly: Boolean = false,
+    val thinkingText: String = "",
 ) {
     val papers: List<Paper> get() = litResult?.papers ?: emptyList()
 
@@ -362,6 +363,7 @@ class DeskViewModel(
             }
             try {
                 val snapshot = _uiState.value
+                _uiState.update { it.copy(thinkingText = "Expanding search query with AI...") }
                 val searchQueries = withContext(Dispatchers.IO) {
                     expandSearchQuery(subj.name, q)
                 }
@@ -371,6 +373,7 @@ class DeskViewModel(
                 } else {
                     debugLog.log("SEARCH", "LLM unavailable, using raw query")
                 }
+                _uiState.update { it.copy(thinkingText = "Searching ${snapshot.sourcesEnabled.size} databases...") }
                 val result = withContext(Dispatchers.IO) {
                     runLiteratureSearch(
                         query = q,
@@ -380,6 +383,7 @@ class DeskViewModel(
                         searchQueries = searchQueries,
                     )
                 }
+                _uiState.update { it.copy(thinkingText = "Clustering ${result.papers.size} papers by topic...") }
                 val clusters = withContext(Dispatchers.Default) {
                     clusterPapers(subj, result.papers)
                 }
@@ -398,12 +402,13 @@ class DeskViewModel(
 
     private suspend fun analyzeWithLlm(clusters: List<Cluster>, papers: List<Paper>) {
         val subj = subject ?: return
-        _uiState.update { it.copy(analyzing = true, gaps = emptyList(), projects = emptyList()) }
+        _uiState.update { it.copy(analyzing = true, gaps = emptyList(), projects = emptyList(), thinkingText = "Reading ${papers.size} paper abstracts...") }
 
         var gaps: List<Gap>
         var projects: List<Project>
 
         if (LlmRuntime.ready) {
+            _uiState.update { it.copy(thinkingText = "Identifying research gaps...") }
             gaps = analyzeGapsWithLlm(subj.name, papers, clusters)
             if (gaps.isEmpty()) gaps = buildGaps(subj, papers, clusters)
 
@@ -411,6 +416,7 @@ class DeskViewModel(
             System.gc()
             kotlinx.coroutines.delay(500)
 
+            _uiState.update { it.copy(thinkingText = "Generating project ideas...") }
             projects = generateProjectsWithLlm(subj.name, gaps, papers)
             if (projects.isEmpty()) projects = buildProjects(subj, papers, gaps)
         } else {
@@ -418,7 +424,7 @@ class DeskViewModel(
             projects = buildProjects(subj, papers, gaps)
         }
 
-        _uiState.update { it.copy(gaps = gaps, projects = projects, analyzing = false) }
+        _uiState.update { it.copy(gaps = gaps, projects = projects, analyzing = false, thinkingText = "") }
     }
 
     // --- Protocol -------------------------------------------------------------

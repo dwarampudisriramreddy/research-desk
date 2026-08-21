@@ -2,7 +2,6 @@ package com.ram.researchdesk
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -162,10 +161,14 @@ fun DeskScreen(viewModel: DeskViewModel, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ThinkingDots()
+                        CircularProgressIndicator(
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(14.dp),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = if (ui.llmReady) "AI thinking..." else "Analyzing...",
+                            text = ui.thinkingText.ifEmpty { "Analyzing..." },
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -574,34 +577,6 @@ private fun MiniBadge(text: String, container: Color) {
             fontSize = 10.sp,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         )
-    }
-}
-
-@Composable
-private fun ThinkingDots() {
-    val dotCount = 3
-    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "thinking")
-    val activeDot by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = dotCount.toFloat(),
-        animationSpec = androidx.compose.animation.core.tween(
-            durationMillis = 900,
-            easing = androidx.compose.animation.core.LinearEasing,
-        ),
-        label = "dot",
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-        repeat(dotCount) { i ->
-            val alpha = if (i == activeDot.toInt() % dotCount) 1f else 0.3f
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .background(
-                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = alpha),
-                        shape = RoundedCornerShape(50),
-                    ),
-            )
-        }
     }
 }
 
