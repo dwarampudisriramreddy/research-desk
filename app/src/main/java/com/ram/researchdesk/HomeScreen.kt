@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -68,6 +69,10 @@ fun HomeScreen(onOpenDesk: (yearId: String, subjectId: String) -> Unit) {
     val scope = rememberCoroutineScope()
     val llmState by LlmRuntime.state.collectAsState()
     var expandedYearId by remember { mutableStateOf<String?>(null) }
+    var selectedModel by remember { mutableStateOf { ModelDownloader.selectedModel(context) } }
+    val loadedModel = LlmRuntime.loadedModel
+    val isModelLoaded = loadedModel != null && llmState is LlmRuntimeState.Ready
+    val isDifferentModel = selectedModel != loadedModel && isModelLoaded
 
     // Auto-initialize on open, mirroring Flutter's initState -> _initLlm().
     LaunchedEffect(Unit) {
@@ -118,7 +123,19 @@ fun HomeScreen(onOpenDesk: (yearId: String, subjectId: String) -> Unit) {
                     ).forEach { label -> Pill(label) }
                 }
             }
-            item { LlmCard(state = llmState, onRetry = { scope.launch { LlmRuntime.ensureReady(context) } }) }
+            item {
+                ModelSelector(
+                    selected = selectedModel,
+                    loadedModel = loadedModel,
+                    isModelLoaded = isModelLoaded,
+                    onSelect = { model ->
+                        selectedModel = model
+                        ModelDownloader.setSelectedModel(context, model)
+                        LlmRuntime.startInit(context, autoDownload = true, model = model)
+                    },
+                )
+            }
+            item { LlmCard(state = llmState, model = selectedModel, loadedModel = loadedModel, onRetry = { scope.launch { LlmRuntime.ensureReady(context) } }) }
             item {
                 Text(
                     text = "Open a year, pick a subject",
@@ -148,7 +165,111 @@ fun HomeScreen(onOpenDesk: (yearId: String, subjectId: String) -> Unit) {
 }
 
 @Composable
-private fun Pill(label: String) {
+private fun ModelSelector(
+    selected: LlmModel,
+    loadedModel: LlmModel?,
+    isModelLoaded: Boolean,
+    onSelect: (LlmModel) -> Unit,
+) {
+    Card {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.SwapHoriz, contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "AI Model",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (isModelLoaded && loadedModel != selected) {
+                    Spacer(Modifier.weight(1f))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                    ) {
+                        Text(
+                            "restart required",
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                LlmModel.entries.forEach { model ->
+                    val isSelected = selected == model
+                    val isLoaded = loadedModel == model
+                    Card(
+                        onClick = { onSelect(model) },
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                model.shortName,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected)
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onSurface,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                model.displayName,
+                                fontSize = 10.sp,
+                                color = if (isSelected)
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "${model.sizeMB} MB",
+                                fontSize = 9.sp,
+                                color = if (isSelected)
+                                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            )
+                            if (isLoaded) {
+                                Spacer(Modifier.height(2.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                ) {
+                                    Text(
+                                        "loaded",
+                                        fontSize = 8.sp,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -167,7 +288,7 @@ private fun Pill(label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
+private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmModel?, onRetry: () -> Unit) {
     when (state) {
         is LlmRuntimeState.Ready -> {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -187,7 +308,7 @@ private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            "Qwen3 0.6B loaded. AI chat available in desks.",
+                            "${loadedModel?.displayName ?: model.displayName} loaded. AI chat available in desks.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -207,7 +328,7 @@ private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
                         )
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            "Downloading AI model (\u2248474 MB)...",
+                            "Downloading ${model.displayName} (\u2248${model.sizeMB} MB)...",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -247,7 +368,7 @@ private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = if (state is LlmRuntimeState.Initializing) "Preparing AI model..." else "Checking AI model...",
+                        text = if (state is LlmRuntimeState.Initializing) "Preparing ${model.displayName}..." else "Checking AI model...",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -320,7 +441,7 @@ private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
                     Button(onClick = onRetry) {
                         Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Download AI model (~474 MB)")
+                        Text("Download ${model.displayName} (~${model.sizeMB} MB)")
                     }
                 }
             }

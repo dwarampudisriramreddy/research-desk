@@ -10,9 +10,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 private const val TAG = "ModelDownloader"
-private const val MODEL_URL =
-    "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/qwen3_0_6b_mixed_int4.litertlm"
-private const val MODEL_FILENAME = "qwen3_0_6b_mixed_int4.litertlm"
 
 data class DownloadProgress(
     val bytesReceived: Long,
@@ -25,28 +22,50 @@ data class DownloadProgress(
 
 object ModelDownloader {
 
-    fun modelPath(context: Context): String {
-        return File(context.filesDir, MODEL_FILENAME).absolutePath
+    private const val PREFS_NAME = "llm_model"
+    private const val KEY_MODEL_ID = "selected_model_id"
+
+    fun selectedModel(context: Context): LlmModel {
+        val id = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_MODEL_ID, null)
+        return if (id != null) LlmModel.fromId(id) else LlmModel.DEFAULT
     }
 
-    fun isDownloaded(context: Context): Boolean {
-        val f = File(modelPath(context))
+    fun setSelectedModel(context: Context, model: LlmModel) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_MODEL_ID, model.id).apply()
+    }
+
+    fun modelPath(context: Context, model: LlmModel = selectedModel(context)): String {
+        return File(context.filesDir, model.filename).absolutePath
+    }
+
+    fun isDownloaded(context: Context, model: LlmModel = selectedModel(context)): Boolean {
+        val f = File(modelPath(context, model))
         return f.exists() && f.length() > 10_000_000
     }
 
     suspend fun download(
         context: Context,
+        model: LlmModel = selectedModel(context),
         onProgress: (DownloadProgress) -> Unit = {},
     ): Result<String> = withContext(Dispatchers.IO) {
-        val targetFile = File(context.filesDir, MODEL_FILENAME)
-        val tmpFile = File(context.filesDir, "$MODEL_FILENAME.tmp")
+        val targetFile = File(context.filesDir, model.filename)
+        val tmpFile = File(context.filesDir, "${model.filename}.tmp")
 
-        if (isDownloaded(context)) {
-            Log.d(TAG, "Model already cached")
-            return@withContext Result.success(modelPath(context))
+        if (isDownloaded(context, model)) {
+            Log.d(TAG, "Model already cached: ${model.filename}")
+            return@withContext Result.success(modelPath(context, model))
         }
 
-        // Clean up stale files from previous model versions
+        // Clean up other model files to save space
+        LlmModel.entries.filter { it != model }.forEach { other ->
+            val f = File(context.filesDir, other.filename)
+            if (f.exists()) { f.delete(); Log.d(TAG, "Cleaned other model: ${other.filename}") }
+            val tmp = File(context.filesDir, "${other.filename}.tmp")
+            if (tmp.exists()) tmp.delete()
+        }
+        // Clean up stale files from previous versions
         listOf(
             "gemma3-1b-it-int4.litertlm",
             "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm",
@@ -68,7 +87,7 @@ object ModelDownloader {
 
         var conn: HttpURLConnection? = null
         try {
-            val url = URL(MODEL_URL)
+            val url = URL(model.url)
             conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 30_000
             conn.readTimeout = 30_000
@@ -140,27 +159,20 @@ object ModelDownloader {
         }
     }
 
-    fun deleteModel(context: Context) {
-        val f = File(modelPath(context))
+    fun deleteModel(context: Context, model: LlmModel = selectedModel(context)) {
+        val f = File(modelPath(context, model))
         if (f.exists()) {
             f.delete()
-            Log.d(TAG, "Model deleted")
+            Log.d(TAG, "Model deleted: ${model.filename}")
         }
-        val tmp = File(context.filesDir, "$MODEL_FILENAME.tmp")
+        val tmp = File(context.filesDir, "${model.filename}.tmp")
         if (tmp.exists()) tmp.delete()
-        // Clean up old model files from previous versions
-        listOf(
-            "gemma3-1b-it-int4.litertlm",
-            "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm",
-            "Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm.tmp",
-            "gemma-4-E2B-it.litertlm",
-            "gemma-4-E2B-it-int4.litertlm",
-            "gemma-4-E2B-it-gpu.litertlm",
-        ).forEach { old ->
-            val oldFile = File(context.filesDir, old)
+        // Clean up all model files
+        LlmModel.entries.forEach { other ->
+            val oldFile = File(context.filesDir, other.filename)
             if (oldFile.exists()) {
                 oldFile.delete()
-                Log.d(TAG, "Deleted old model: $old")
+                Log.d(TAG, "Deleted model: ${other.filename}")
             }
         }
     }

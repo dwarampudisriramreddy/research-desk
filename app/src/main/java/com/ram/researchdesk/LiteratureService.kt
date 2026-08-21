@@ -237,6 +237,78 @@ private val DOI_COLON_SPACE_RE = Regex("^doi:\\s*", RegexOption.IGNORE_CASE)
 private val NON_DIGIT_RE = Regex("\\D")
 private val PMCID_RE = Regex("PMC\\d+")
 
+/**
+ * Use the LLM to expand a natural-language research query into structured
+ * search strings optimised for each database. Returns null if LLM is unavailable
+ * or fails — caller falls back to the raw query.
+ */
+suspend fun expandSearchQuery(subjectName: String, rawQuery: String): SearchQueries? {
+    if (!LlmRuntime.ready) return null
+    return try {
+        val prompt = """
+You are a medical librarian. Convert this dental research query into optimised search strings for different databases.
+
+SUBJECT: $subjectName
+RAW QUERY: $rawQuery
+
+Return JSON with these fields:
+{
+  "pubmed": "Boolean query with MeSH terms AND free-text synonyms, using field tags like [MeSH Terms], [Title/Abstract]. Use AND/OR correctly. Keep under 300 chars.",
+  "generic": "Space-separated keywords with synonyms, no Boolean operators. Good for OpenAlex, Crossref, Europe PMC. 8-12 key terms max.",
+  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5", "keyword6"]
+}
+
+RULES for pubmed field:
+- Include MeSH terms where they exist (e.g., "Dental Students"[MeSH], "Blood Pressure"[MeSH])
+- Add free-text synonyms with OR (e.g., "blood pressure" OR "hypertension" OR "BP")
+- Use [Title/Abstract] for free-text terms
+- Include the subject context (dental, oral, dentistry)
+- Structure: (MeSH term) OR (free text synonyms) AND (MeSH term) OR (free text) ...
+
+RULES for generic field:
+- Include synonyms and related terms a researcher would use
+- Include both US and UK spellings if relevant (e.g., "colour" OR "color")
+- Include abbreviated and full forms (e.g., "BP" OR "blood pressure")
+- 8-12 terms covering the concept broadly
+
+RULES for keywords:
+- 6 most important search terms
+- Include both specific and broad terms
+
+Return ONLY the JSON.
+        """.trimIndent()
+
+        val raw = LlmRuntime.chat(
+            "You are a medical librarian. Output only valid JSON.",
+            prompt,
+        )
+        val json = JSONObject(extractSearchJson(raw))
+        SearchQueries(
+            pubmed = json.optString("pubmed", rawQuery).ifEmpty { rawQuery },
+            generic = json.optString("generic", rawQuery).ifEmpty { rawQuery },
+            keywords = json.optJSONArray("keywords")?.let { arr ->
+                (0 until arr.length()).map { arr.getString(it) }
+            } ?: emptyList(),
+        )
+    } catch (e: Exception) {
+        Log.e("SEARCH", "LLM query expansion failed: $e")
+        null
+    }
+}
+
+private fun extractSearchJson(raw: String): String {
+    val first = raw.indexOf('{')
+    val last = raw.lastIndexOf('}')
+    if (first >= 0 && last > first) return raw.substring(first, last + 1)
+    return raw
+}
+
+data class SearchQueries(
+    val pubmed: String,
+    val generic: String,
+    val keywords: List<String>,
+)
+
 suspend fun searchPubMed(query: String, yearFrom: Int, yearTo: Int): List<Paper> {
     val tokens = query.split(Regex("\\s+")).filter { it.length > 1 }.take(5).joinToString(" ")
     val term = "($tokens) AND ($yearFrom:$yearTo[dp])"
@@ -615,6 +687,7 @@ suspend fun runLiteratureSearch(
     yearFrom: Int = 2021,
     yearTo: Int = 2026,
     sources: List<String>? = null,
+    searchQueries: SearchQueries? = null,
 ): LiteratureResult = coroutineScope {
     val q = query.trim()
     if (q.isEmpty()) {
@@ -674,23 +747,25 @@ suspend fun runLiteratureSearch(
     }
 
     val jobs = mutableListOf<Deferred<SourceOutcome>>()
+    val pmQuery = searchQueries?.pubmed ?: truncated
+    val genericQuery = searchQueries?.generic ?: truncated
     if ("pubmed" in enabled) {
-        jobs.add(timed("pubmed", "PubMed") { searchPubMed(truncated, yearFrom, yearTo) })
+        jobs.add(timed("pubmed", "PubMed") { searchPubMed(pmQuery, yearFrom, yearTo) })
     }
     if ("europepmc" in enabled) {
-        jobs.add(timed("europepmc", "Europe PMC") { searchEuropePmc(truncated, yearFrom, yearTo) })
+        jobs.add(timed("europepmc", "Europe PMC") { searchEuropePmc(genericQuery, yearFrom, yearTo) })
     }
     if ("openalex" in enabled) {
-        jobs.add(timed("openalex", "OpenAlex") { searchOpenAlex(truncated, yearFrom, yearTo, null, "openalex") })
+        jobs.add(timed("openalex", "OpenAlex") { searchOpenAlex(genericQuery, yearFrom, yearTo, null, "openalex") })
     }
     if ("scopus" in enabled) {
-        jobs.add(timed("scopus", "Scopus") { searchOpenAlex(truncated, yearFrom, yearTo, SCOPUS_ISSNS, "scopus") })
+        jobs.add(timed("scopus", "Scopus") { searchOpenAlex(genericQuery, yearFrom, yearTo, SCOPUS_ISSNS, "scopus") })
     }
     if ("wos" in enabled) {
-        jobs.add(timed("wos", "Web of Science") { searchOpenAlex(truncated, yearFrom, yearTo, WOS_ISSNS, "wos") })
+        jobs.add(timed("wos", "Web of Science") { searchOpenAlex(genericQuery, yearFrom, yearTo, WOS_ISSNS, "wos") })
     }
     if ("crossref" in enabled) {
-        jobs.add(timed("crossref", "Crossref") { searchCrossref(truncated, yearFrom, yearTo) })
+        jobs.add(timed("crossref", "Crossref") { searchCrossref(genericQuery, yearFrom, yearTo) })
     }
 
     val settled = jobs.awaitAll()
@@ -716,15 +791,18 @@ suspend fun runLiteratureSearch(
             databases = sourceStatuses.filter { it.ok }.map { it.label },
             searchDate = today(),
             period = "$yearFrom\u2013$yearTo",
-            terms = q,
+            terms = if (searchQueries != null) "$q [expanded]" else q,
             screened = merged.size,
             included = merged.size,
-            notes = listOf(
-                "Targeted retrieval, not an exhaustive systematic review.",
-                "Scopus and Web of Science: internationally indexed journals via ISSN match (OpenAlex).",
-                "Engineering and biomaterials journals are included in the Scopus/WoS ISSN set.",
-                "No matching paper does not prove that none exists.",
-            ),
+            notes = buildList {
+                add("Targeted retrieval, not an exhaustive systematic review.")
+                if (searchQueries != null) {
+                    add("Search queries expanded with MeSH terms and synonyms via AI.")
+                }
+                add("Scopus and Web of Science: internationally indexed journals via ISSN match (OpenAlex).")
+                add("Engineering and biomaterials journals are included in the Scopus/WoS ISSN set.")
+                add("No matching paper does not prove that none exists.")
+            },
         ),
     )
 }

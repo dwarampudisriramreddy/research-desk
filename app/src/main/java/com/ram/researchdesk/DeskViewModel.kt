@@ -44,38 +44,53 @@ object LlmRuntime {
     val ready: Boolean get() = engineRef?.isReady == true
     var backendName: String = ""
         private set
+    var loadedModel: LlmModel? = null
+        private set
 
     /**
      * Kick off model download + engine init. Non-blocking — updates state as
      * it progresses. Safe to call multiple times; second call while init is
      * in progress is a no-op.
      */
-    fun startInit(context: Context, autoDownload: Boolean = true) {
-        if (engineRef?.isReady == true) {
+    private var initModel: LlmModel? = null
+
+    fun startInit(context: Context, autoDownload: Boolean = true, model: LlmModel = ModelDownloader.selectedModel(context)) {
+        if (engineRef?.isReady == true && loadedModel == model) {
             _state.value = LlmRuntimeState.Ready
             return
         }
-        if (initJob?.isActive == true) return  // already initializing
+        // Same model already initializing — no-op
+        if (initJob?.isActive == true && initModel == model) return
+        // Different model requested — cancel old init
+        initJob?.cancel()
+        initModel = model
 
         initJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             val app = context.applicationContext
 
+            // If switching models, release old engine first
+            if (loadedModel != null && loadedModel != model) {
+                debugLog.log("LLM", "Switching model: ${loadedModel?.displayName} -> ${model.displayName}")
+                engineRef?.stopResponse()
+                engineRef?.close()
+                engineRef = null
+            }
+
             // Download if needed
-            if (!ModelDownloader.isDownloaded(app)) {
+            if (!ModelDownloader.isDownloaded(app, model)) {
                 if (!autoDownload) {
                     _state.value = LlmRuntimeState.NotDownloaded
                     return@launch
                 }
-                debugLog.log("LLM", "=== MODEL DOWNLOAD START ===")
-                debugLog.log("LLM", "Model not cached, downloading (~474 MB)")
+                debugLog.log("LLM", "=== MODEL DOWNLOAD START: ${model.displayName} (${model.sizeMB} MB) ===")
                 _state.value = LlmRuntimeState.Downloading(DownloadProgress(0, 1))
                 LlmNotificationService.startDownload(app)
-                val result = ModelDownloader.download(app) { progress ->
+                val result = ModelDownloader.download(app, model) { progress ->
                     _state.value = LlmRuntimeState.Downloading(progress)
                     LlmNotificationService.updateProgress(
                         app,
                         (progress.percent * 100).toInt(),
-                        "Downloading... ${(progress.bytesReceived / 1024 / 1024)}/${(progress.totalBytes / 1024 / 1024)} MB",
+                        "Downloading ${model.displayName}... ${(progress.bytesReceived / 1024 / 1024)}/${(progress.totalBytes / 1024 / 1024)} MB",
                     )
                 }
                 val failure = result.exceptionOrNull()
@@ -85,23 +100,24 @@ object LlmRuntime {
                     LlmNotificationService.stop(app)
                     return@launch
                 }
-                debugLog.log("LLM", "=== DOWNLOAD COMPLETE ===")
+                debugLog.log("LLM", "=== DOWNLOAD COMPLETE: ${model.displayName} ===")
             } else {
-                debugLog.log("LLM", "Model already cached, skipping download")
+                debugLog.log("LLM", "Model already cached: ${model.displayName}")
             }
 
             // Init engine
             _state.value = LlmRuntimeState.Initializing
             LlmNotificationService.markInit(app)
-            debugLog.log("LLM", "=== LLM INITIALIZATION START ===")
+            debugLog.log("LLM", "=== LLM INITIALIZATION START: ${model.displayName} ===")
             val eng = LlmEngine(app)
-            eng.initialize(ModelDownloader.modelPath(app))
+            eng.initialize(ModelDownloader.modelPath(app, model))
 
             if (eng.isReady) {
                 engineRef?.close()
                 engineRef = eng
                 backendName = eng.backendName
-                debugLog.log("LLM", "=== ENGINE READY (${eng.backendName}) ===")
+                loadedModel = model
+                debugLog.log("LLM", "=== ENGINE READY: ${model.displayName} (${eng.backendName}) ===")
                 _state.value = LlmRuntimeState.Ready
                 LlmNotificationService.markReady(app, eng.backendName)
             } else {
@@ -172,6 +188,7 @@ object LlmRuntime {
         engineRef?.close()
         engineRef = null
         ModelDownloader.deleteModel(app)
+        loadedModel = null
         LlmNotificationService.stop(app)
         debugLog.log("LLM", "Model deleted from storage")
         _state.value = LlmRuntimeState.NotDownloaded
@@ -314,12 +331,23 @@ class DeskViewModel(
             }
             try {
                 val snapshot = _uiState.value
+                // Expand query with LLM for better search results
+                val searchQueries = withContext(Dispatchers.IO) {
+                    expandSearchQuery(subj.name, q)
+                }
+                if (searchQueries != null) {
+                    debugLog.log("SEARCH", "Query expanded: PubMed=${searchQueries.pubmed.take(80)}...")
+                    debugLog.log("SEARCH", "Keywords: ${searchQueries.keywords.joinToString(", ")}")
+                } else {
+                    debugLog.log("SEARCH", "LLM unavailable, using raw query")
+                }
                 val result = withContext(Dispatchers.IO) {
                     runLiteratureSearch(
                         query = q,
                         yearFrom = snapshot.yearFrom,
                         yearTo = snapshot.yearTo,
                         sources = snapshot.sourcesEnabled.toList(),
+                        searchQueries = searchQueries,
                     )
                 }
                 val clusters = withContext(Dispatchers.Default) {
@@ -471,53 +499,73 @@ class DeskViewModel(
         }
         debugLog.log("LLM", "--- analyzeGaps: ${papers.size} papers, ${clusters.size} clusters ---")
 
-        val paperSummaries = papers.take(30).joinToString("\n") { p ->
-            "- \"${p.title}\" (${p.year ?: "?"}) ${p.journal ?: ""} " +
-                "[${p.studyDesign ?: "unknown"}] ${if (p.mentionsIndia) "[India]" else ""} " +
-                "DOI:${p.doi ?: "none"}"
-        }
-        val clusterSummary = clusters.joinToString("\n") { c ->
-            "- ${c.name}: ${c.paperIds.size} papers (${c.evidence})"
+        val paperBlocks = papers.take(20).mapIndexed { i, p ->
+            buildString {
+                append("${i + 1}. \"${p.title}\"")
+                p.year?.let { append(" ($it)") }
+                p.journal?.let { append(" — $it") }
+                p.studyDesign?.let { append(" [$it]") }
+                if (p.mentionsIndia) append(" [India]")
+                append("\n")
+                val abs = p.abstract?.trim()?.take(300) ?: ""
+                if (abs.isNotEmpty()) append("   Abstract: $abs\n")
+                else append("   (no abstract available)\n")
+            }
+        }.joinToString("\n")
+
+        val clusterSummary = clusters.filter { it.id != "other" }.joinToString("\n") { c ->
+            "• ${c.name} (${c.paperIds.size} papers, ${c.evidence})"
         }
 
         val prompt = """
-            You are a research methodology expert for BDS (dental) students in India.
+You are a dental research methodology expert for BDS undergraduates in East Godavari, Andhra Pradesh, India.
 
-            Analyze these papers for $subjectName and identify real research gaps.
+Analyze the ${papers.size} papers below for $subjectName. Read each abstract carefully.
 
-            PAPERS RETRIEVED (${papers.size}):
-            $paperSummaries
+PAPERS:
+$paperBlocks
 
-            CLUSTERS:
-            $clusterSummary
+CLUSTERS:
+$clusterSummary
 
-            Return a JSON array of gaps. Each gap must have these fields:
-            {
-              "statement": "clear gap statement",
-              "confidence": "high|moderate|possible",
-              "novelty": "one of: underexplored-in-india, methodological-extension, cross-cultural-validation, synthesis-needed, temporal-renewal",
-              "why": "why this gap matters for an undergrad project",
-              "candidateQuestion": "specific research question",
-              "feasibilityNote": "how to do this in 8-12 weeks with minimal budget",
-              "category": "one of: population, method, evidence, geographic, temporal"
-            }
+Your task: identify specific, actionable research gaps based on what these papers ACTUALLY found, measured, and concluded. Do NOT produce generic gaps. Each gap must reference specific papers and their specific findings.
 
-            Rules:
-            - Be specific to the actual papers, not generic
-            - Focus on gaps an undergraduate can realistically fill
-            - Consider local (East Godavari, Andhra Pradesh) feasibility
-            - Max 6 gaps
-            - Return ONLY the JSON array, no other text
+For EACH gap, think:
+1. What specific finding or measurement is missing from this body of literature?
+2. What specific contradiction or inconsistency exists between papers?
+3. What specific subpopulation or variable has NOT been studied?
+4. What specific methodological weakness appears in multiple papers?
+
+Return a JSON array of 4-6 gaps. Each gap object:
+{
+  "statement": "2-3 sentence gap statement referencing SPECIFIC papers and their SPECIFIC findings (e.g., 'Paper X found Y using method Z, but no study has measured W in this context')",
+  "confidence": "high|moderate|possible",
+  "novelty": "underexplored-in-india|methodological-extension|cross-cultural-validation|synthesis-needed|temporal-renewal",
+  "why": "1-2 sentences: why filling this gap matters for dental practice or public health in India",
+  "unknown": "what specific question remains unanswered",
+  "candidateQuestion": "a specific, testable research question with measurable variables",
+  "feasibilityNote": "how an undergrad can do this in 8-12 weeks using only departmental equipment",
+  "category": "population|method|evidence|geographic|temporal|outcome",
+  "relatedPapers": "list paper numbers (1, 2, 3...) that this gap relates to"
+}
+
+RULES:
+- Each gap statement MUST mention a specific paper number and what that paper found
+- Do NOT say "more research is needed" — say WHAT research and WHY
+- Do NOT repeat the same gap in different words
+- Focus on gaps a BDS student can fill with calipers, pH strips, probes, ImageJ, questionnaires
+- No extra radiation, no new blood tests, no UTM
+- Return ONLY the JSON array
         """.trimIndent()
 
         return try {
-            debugLog.log("LLM", "Gap analysis prompt sent...")
+            debugLog.log("LLM", "Gap analysis prompt sent (${prompt.length} chars)...")
             val raw = LlmRuntime.chat(
-                "You are a dental research methodology expert. Output only valid JSON.",
+                "You are a dental research methodology expert. Output only valid JSON arrays.",
                 prompt,
             )
-            debugLog.log("LLM", "Parsing gap response...")
-            val gaps = parseGaps(raw)
+            debugLog.log("LLM", "Parsing gap response (${raw.length} chars)...")
+            val gaps = parseGaps(raw, papers)
             debugLog.log("LLM", "Parsed ${gaps.size} gaps from LLM")
             gaps
         } catch (e: Exception) {
@@ -526,23 +574,31 @@ class DeskViewModel(
         }
     }
 
-    private fun parseGaps(raw: String): List<Gap> = try {
+    private fun parseGaps(raw: String, papers: List<Paper>): List<Gap> = try {
         val arr = JSONArray(extractJson(raw))
         debugLog.log("LLM", "Extracted JSON: ${raw.take(300)}...")
         (0 until arr.length()).map { i ->
             val g = arr.getJSONObject(i)
+            // Map related paper numbers back to paper IDs
+            val relatedIds = mutableListOf<String>()
+            g.optString("relatedPapers", "").split(Regex("[,\\s]+")).forEach { token ->
+                val num = token.trim().toIntOrNull()
+                if (num != null && num in 1..papers.size) {
+                    relatedIds.add(papers[num - 1].id ?: "")
+                }
+            }
             Gap(
                 id = "llm-gap-${hashId(g.optString("statement"))}",
                 statement = g.optString("statement"),
                 confidence = g.optString("confidence", "possible"),
                 novelty = g.optString("novelty", "underexplored-in-india"),
                 why = g.optString("why"),
-                unknown = "",
+                unknown = g.optString("unknown", ""),
                 candidateQuestion = g.optString("candidateQuestion"),
                 ugFeasible = true,
                 feasibilityNote = g.optString("feasibilityNote"),
                 category = g.optString("category", "population"),
-                paperIds = emptyList(),
+                paperIds = relatedIds.filter { it.isNotEmpty() },
             )
         }
     } catch (e: Exception) {
@@ -562,50 +618,80 @@ class DeskViewModel(
         }
         debugLog.log("LLM", "--- generateProjects: ${gaps.size} gaps ---")
 
-        val gapSummaries = gaps.take(5).joinToString("\n") { g ->
-            "- [${g.category}] ${g.statement}\n  Q: ${g.candidateQuestion}"
+        val gapBlocks = gaps.take(5).mapIndexed { i, g ->
+            buildString {
+                append("GAP ${i + 1} [${g.category}] (confidence: ${g.confidence}):\n")
+                append("  Statement: ${g.statement}\n")
+                append("  Research question: ${g.candidateQuestion}\n")
+                append("  Feasibility: ${g.feasibilityNote}\n")
+                if (g.paperIds.isNotEmpty()) {
+                    append("  Related papers: ${g.paperIds.joinToString(", ") { id ->
+                        papers.find { it.id == id }?.title?.take(60) ?: id
+                    }}\n")
+                }
+            }
+        }.joinToString("\n")
+
+        // Include a few key paper abstracts for context
+        val paperContext = papers.take(10).joinToString("\n") { p ->
+            val abs = p.abstract?.trim()?.take(200) ?: ""
+            "- \"${p.title}\" (${p.year ?: "?"}) ${p.journal ?: ""}" +
+                if (abs.isNotEmpty()) "\n  $abs" else ""
         }
 
         val prompt = """
-            You are a dental research project designer for BDS undergrads in East Godavari, India.
+You are a dental research project designer for BDS undergraduates in East Godavari, Andhra Pradesh, India.
 
-            Based on these research gaps for $subjectName:
-            $gapSummaries
+SUBJECT: $subjectName
 
-            Generate a project for EACH gap. Return a JSON array:
-            {
-              "title": "specific project title",
-              "gapCategory": "same as the gap category",
-              "researchQuestion": "focused question",
-              "hypothesis": "testable hypothesis",
-              "studyDesign": "specific design for this gap type",
-              "population": "local population description",
-              "primaryOutcome": "measurable primary outcome",
-              "dataCollection": "step-by-step data collection method",
-              "statistics": "specific statistical tests for this design",
-              "costInr": "realistic cost in INR",
-              "durationWeeks": 10,
-              "ethics": "specific ethics considerations",
-              "limitations": ["limitation 1", "limitation 2"]
-            }
+RESEARCH GAPS TO ADDRESS:
+$gapBlocks
 
-            Rules:
-            - Use departmental instruments only (calipers, pH strips, ImageJ, probes)
-            - No extra radiation, no new blood tests, no UTM
-            - Statistics must match the study design
-            - Cost must be realistic for Indian dental college
-            - Max 5 projects
-            - Return ONLY the JSON array
+KEY PAPERS FOR REFERENCE:
+$paperContext
+
+For EACH gap above, design ONE specific, realistic project. Each project must:
+- Address that specific gap with a concrete, measurable study
+- Use ONLY departmental equipment (calipers, pH strips, probes, intraoral camera, ImageJ, survey forms)
+- No extra radiation, no new blood tests, no UTM
+- Be completable in 8-12 weeks by a single BDS student
+- Cost under ₹5,000
+
+Return a JSON array of 4-5 projects:
+{
+  "title": "specific title with the actual variable name (e.g., 'Comparing caliper and digital photograph measurements of gingival recession in adults with chronic periodontitis')",
+  "gapIndex": 1,
+  "researchQuestion": "specific question with measurable variables (e.g., 'Is caliper measurement of gingival recession width equivalent to digital photograph measurement using ImageJ?')",
+  "hypothesis": "testable hypothesis (e.g., 'Caliper and digital photograph measurements of gingival recession width will show good agreement (kappa > 0.7) in adults with chronic periodontitis')",
+  "studyDesign": "specific design (e.g., 'Cross-sectional diagnostic accuracy study with consecutive sampling')",
+  "population": "specific local population (e.g., 'Adults aged 18-65 with chronic periodontitis attending the Periodontics OPD')",
+  "primaryOutcome": "specific measurable outcome with instrument (e.g., 'Gingival recession width measured in mm using both a UNC-15 caliper and ImageJ on intraoral photographs')",
+  "secondaryOutcomes": ["outcome 2", "outcome 3"],
+  "dataCollection": "step-by-step: what is measured, how, by whom, in what order",
+  "statistics": "specific tests for this exact design (e.g., 'Bland-Altman plot for agreement, paired t-test for mean difference, ICC for reliability')",
+  "costInr": "realistic cost breakdown",
+  "durationWeeks": 10,
+  "ethics": "specific ethics points for this study",
+  "limitations": ["specific limitation 1", "specific limitation 2"]
+}
+
+RULES:
+- Title must name the SPECIFIC variables and population, not generic "Research Topic"
+- Hypothesis must be TESTABLE with the proposed methods
+- Primary outcome must include the MEASUREMENT TOOL and UNIT
+- Statistics must match the study design exactly
+- Each project must be DIFFERENT from the others — no repeated templates
+- Return ONLY the JSON array
         """.trimIndent()
 
         return try {
-            debugLog.log("LLM", "Project generation prompt sent...")
+            debugLog.log("LLM", "Project generation prompt sent (${prompt.length} chars)...")
             val raw = LlmRuntime.chat(
-                "You are a dental research project designer. Output only valid JSON.",
+                "You are a dental research project designer. Output only valid JSON arrays.",
                 prompt,
             )
-            debugLog.log("LLM", "Parsing project response...")
-            val projects = parseProjects(raw, subjectName, gaps)
+            debugLog.log("LLM", "Parsing project response (${raw.length} chars)...")
+            val projects = parseProjects(raw, subjectName, gaps, papers)
             debugLog.log("LLM", "Parsed ${projects.size} projects from LLM")
             projects
         } catch (e: Exception) {
@@ -614,15 +700,25 @@ class DeskViewModel(
         }
     }
 
-    private fun parseProjects(raw: String, subjectName: String, gaps: List<Gap>): List<Project> = try {
+    private fun parseProjects(raw: String, subjectName: String, gaps: List<Gap>, papers: List<Paper>): List<Project> = try {
         val arr = JSONArray(extractJson(raw))
         (0 until arr.length()).map { i ->
             val p = arr.getJSONObject(i)
-            val relatedGap = gaps.firstOrNull { it.category == p.optString("gapCategory") } ?: gaps.first()
+            // Match to gap by index (1-based from prompt)
+            val gapIdx = p.optInt("gapIndex", 1) - 1
+            val relatedGap = gaps.getOrNull(gapIdx) ?: gaps.firstOrNull() ?: Gap(
+                id = "", statement = "", confidence = "possible", novelty = "",
+                why = "", unknown = "", candidateQuestion = "",
+            )
 
             val limitations = mutableListOf<String>()
             p.optJSONArray("limitations")?.let { la ->
                 for (k in 0 until la.length()) limitations.add(la.getString(k))
+            }
+
+            val secondaryOutcomes = mutableListOf<String>()
+            p.optJSONArray("secondaryOutcomes")?.let { sa ->
+                for (k in 0 until sa.length()) secondaryOutcomes.add(sa.getString(k))
             }
 
             Project(
@@ -631,25 +727,26 @@ class DeskViewModel(
                 domain = subjectName,
                 researchQuestion = p.optString("researchQuestion"),
                 hypothesis = p.optString("hypothesis"),
-                evidenceBasis = "LLM-generated from gap analysis.",
+                evidenceBasis = "Derived from ${relatedGap.category} gap analysis of ${papers.size} retrieved papers.",
                 gap = relatedGap.statement,
                 whyDifferent = relatedGap.why,
                 curriculumConnection = subjectName,
                 studyDesign = p.optString("studyDesign"),
-                setting = "Dental college, East Godavari, Andhra Pradesh, India",
+                setting = "Dental college and hospital, East Godavari, Andhra Pradesh, India",
                 population = p.optString("population"),
-                sampleSizeApproach = "Calculate using OpenEpi or G*Power. Do not invent n.",
+                sampleSizeApproach = "Calculate using OpenEpi or G*Power after a pilot of 15-20. Do not invent n.",
                 primaryOutcome = p.optString("primaryOutcome"),
+                secondaryOutcomes = secondaryOutcomes,
                 dataCollection = p.optString("dataCollection"),
                 statistics = p.optString("statistics"),
                 costInr = p.optString("costInr", "\u20B90\u2013\u20B92,000").ifEmpty { "\u20B90\u2013\u20B92,000" },
                 durationWeeks = p.optInt("durationWeeks", 10),
                 ethics = p.optString("ethics"),
                 limitations = limitations,
-                publicationPotential = "Suitable for peer-reviewed journal if methods are clean.",
+                publicationPotential = "Suitable for peer-reviewed dental journal if methods are rigorous and claims stay modest.",
                 keywords = extractKeywords(p.optString("title")),
                 supportingPaperIds = relatedGap.paperIds,
-                similarity = "LLM-generated proposal",
+                similarity = "Gap-driven proposal from ${relatedGap.category} analysis",
             )
         }
     } catch (e: Exception) {
@@ -672,47 +769,64 @@ class DeskViewModel(
         val related = papers
             .filter { project.supportingPaperIds.contains(it.id) }
             .take(5)
-            .joinToString("\n") { p -> "- ${p.title} (${p.year ?: "?"}) ${p.journal ?: ""}" }
-
-        val prompt = """
-            Generate a complete 12-week IEC-ready research protocol for:
-
-            Title: ${project.title}
-            Question: ${project.researchQuestion}
-            Design: ${project.studyDesign}
-            Outcome: ${project.primaryOutcome}
-            Population: ${project.population}
-            Setting: ${project.setting}
-
-            Supporting papers:
-            $related
-
-            Return JSON with these fields:
-            {
-              "aim": "one sentence aim",
-              "background": "2-3 sentence background",
-              "objectives": ["obj1", "obj2", "obj3"],
-              "sampleSize": "how to calculate, not a number",
-              "sampling": "sampling method",
-              "variables": "IV and DV",
-              "procedure": "step by step procedure",
-              "instrument": "instruments needed",
-              "expectedFindings": "what might be found",
-              "timeline": [{"week": "Weeks 1-2", "work": "task"}],
-              "budget": [{"item": "item", "cost": "cost"}],
-              "verificationNotes": ["note1", "note2"]
+            .joinToString("\n") { p ->
+                val abs = p.abstract?.trim()?.take(200) ?: ""
+                "- \"${p.title}\" (${p.year ?: "?"}) ${p.journal ?: ""}" +
+                    if (abs.isNotEmpty()) "\n  $abs" else ""
             }
 
-            Return ONLY the JSON.
+        val prompt = """
+You are a dental research protocol writer for a BDS undergraduate in East Godavari, Andhra Pradesh, India.
+
+PROJECT:
+Title: ${project.title}
+Research question: ${project.researchQuestion}
+Hypothesis: ${project.hypothesis}
+Design: ${project.studyDesign}
+Primary outcome: ${project.primaryOutcome}
+Population: ${project.population}
+Setting: ${project.setting}
+Gap this addresses: ${project.gap}
+Why this is needed: ${project.whyDifferent}
+Budget: ${project.costInr}
+
+SUPPORTING PAPERS:
+$related
+
+Write a complete 10-12 week IEC-ready protocol. Be SPECIFIC to this project — no generic filler.
+
+Return JSON:
+{
+  "aim": "one sentence aim with the SPECIFIC variables and population",
+  "background": "2-3 sentences summarizing what is known from the supporting papers and what is missing",
+  "objectives": ["specific objective 1", "specific objective 2", "specific objective 3"],
+  "sampleSize": "how to calculate (e.g., 'Use OpenEpi for proportion, assuming p=0.5, 95% CI, 5% precision')",
+  "sampling": "specific sampling method with inclusion/exclusion criteria",
+  "variables": "Independent: [specific vars]. Dependent: [specific outcome]. Confounders: [list]",
+  "procedure": "numbered steps: 1. Obtain IEC approval 2. Recruit using [specific criteria] 3. Measure [specific outcome] using [specific tool] 4. Record data on [specific form] ...",
+  "instrument": "specific instruments with brand/model if relevant (e.g., 'UNC-15 periodontal probe, iPhone intraoral camera, ImageJ 1.53t')",
+  "expectedFindings": "what specifically might be found and what it would mean clinically",
+  "timeline": [{"week": "Weeks 1-2", "work": "specific task"}],
+  "budget": [{"item": "specific item", "cost": "cost in INR"}],
+  "verificationNotes": ["specific caution about this study"]
+}
+
+RULES:
+- Every section must reference the SPECIFIC variables from the project, not generic "primary outcome"
+- Procedure must be detailed enough for a student to follow step-by-step
+- Timeline must fit in 12 weeks
+- Budget must be under ₹5,000 total
+- Include at least 5 specific verification notes (e.g., "Do not claim causation from cross-sectional data")
+- Return ONLY the JSON
         """.trimIndent()
 
         return try {
-            debugLog.log("LLM", "Protocol generation prompt sent...")
+            debugLog.log("LLM", "Protocol generation prompt sent (${prompt.length} chars)...")
             val raw = LlmRuntime.chat(
                 "You are a dental research protocol writer. Output only valid JSON.",
                 prompt,
             )
-            debugLog.log("LLM", "Parsing protocol response...")
+            debugLog.log("LLM", "Parsing protocol response (${raw.length} chars)...")
             val protocol = parseProtocol(raw, project, subjectName)
             debugLog.log("LLM", "Protocol parsed successfully")
             protocol
