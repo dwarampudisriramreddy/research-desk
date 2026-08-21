@@ -20,7 +20,7 @@ data class LlmConfig(
     val topK: Int = 40,
     val topP: Float = 0.95f,
     val temperature: Float = 0.7f,
-    val maxTokens: Int = 2048,
+    val maxTokens: Int = 4096,
     val systemPrompt: String = "You are a helpful research assistant.",
 )
 
@@ -32,6 +32,8 @@ class LlmEngine(private val context: Context) {
     var isReady = false
         private set
     var error: String? = null
+        private set
+    var backendName: String = ""
         private set
 
     val ready: Boolean get() = isReady
@@ -76,6 +78,7 @@ class LlmEngine(private val context: Context) {
                 conversation = conv
                 isReady = true
                 error = null
+                backendName = name
                 Log.d(TAG, "=== ENGINE READY ($name) ===")
                 initDeferred.complete(true)
                 return

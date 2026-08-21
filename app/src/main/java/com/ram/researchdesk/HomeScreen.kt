@@ -180,7 +180,7 @@ private fun LlmCard(state: LlmRuntimeState, onRetry: () -> Unit) {
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            "AI Model Ready",
+                            "AI Model Ready \u00B7 ${LlmRuntime.backendName.ifEmpty { "?" }}",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,

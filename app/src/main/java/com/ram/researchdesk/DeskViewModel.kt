@@ -44,6 +44,8 @@ object LlmRuntime {
     private var engineRef: LlmEngine? = null
 
     val ready: Boolean get() = engineRef?.isReady == true
+    var backendName: String = ""
+        private set
 
     /**
      * Ensures the model is downloaded and the engine is initialized.
@@ -90,7 +92,8 @@ object LlmRuntime {
             return@withLock if (eng.isReady) {
                 engineRef?.close()
                 engineRef = eng
-                debugLog.log("LLM", "=== ENGINE READY ===")
+                backendName = eng.backendName
+                debugLog.log("LLM", "=== ENGINE READY (${eng.backendName}) ===")
                 _state.value = LlmRuntimeState.Ready
                 true
             } else {
@@ -325,7 +328,7 @@ class DeskViewModel(
         val subj = subject ?: return
         val text = rawText.trim()
         val s = _uiState.value
-        if (text.isEmpty() || s.chatSending || !s.llmReady || s.litResult == null) return
+        if (text.isEmpty() || s.chatSending || !s.llmReady) return
 
         _uiState.update {
             it.copy(
