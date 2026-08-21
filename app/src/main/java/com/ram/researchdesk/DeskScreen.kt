@@ -764,8 +764,8 @@ private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onCli
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun GapsTab(ui: DeskUiState) {
-    val subject = ui.subject ?: return
     val papers = ui.papers
+    val query = ui.query
     if (papers.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Coverage analysis appears after retrieval.")
@@ -773,23 +773,56 @@ private fun GapsTab(ui: DeskUiState) {
         return
     }
 
-    val subjectKeywords = remember(subject) { subject.clusters.flatMap { it.keywords }.map { it.lowercase() } }
-    val coveredKeywords = remember(papers, subjectKeywords) {
-        buildSet {
-            papers.forEach { p ->
-                val blob = buildString {
-                    append(p.title)
-                    append(" ")
-                    append(p.abstract ?: "")
-                }.lowercase()
-                subjectKeywords.forEach { kw ->
-                    if (blob.contains(kw)) add(kw)
-                }
-            }
-        }
+    // Extract topics from the search query itself
+    val queryTerms = remember(query) {
+        query.lowercase()
+            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .split(Regex("\\s+"))
+            .filter { it.length > 2 }
+            .distinct()
     }
-    val notCovered = remember(subjectKeywords, coveredKeywords) {
-        subjectKeywords.filter { it !in coveredKeywords }
+
+    // Extract meaningful terms from all paper titles + abstracts
+    val paperTerms = remember(papers) {
+        val allText = papers.joinToString(" ") { p ->
+            "${p.title} ${p.abstract ?: ""}"
+        }.lowercase()
+        // Extract 2-3 word phrases and single meaningful words
+        val words = allText.replace(Regex("[^a-z0-9\\s]"), " ").split(Regex("\\s+")).filter { it.length > 3 }
+        val freq = words.groupingBy { it }.eachCount()
+        freq.entries.sortedByDescending { it.value }.take(30).map { it.key }
+    }
+
+    // What the query asked about vs what papers actually cover
+    val coveredQueryTerms = remember(queryTerms, papers) {
+        val allText = papers.joinToString(" ") { "${it.title} ${it.abstract ?: ""}" }.lowercase()
+        queryTerms.filter { allText.contains(it) }
+    }
+    val missingQueryTerms = remember(queryTerms, coveredQueryTerms) {
+        queryTerms.filter { it !in coveredQueryTerms }
+    }
+
+    // What aspects the papers touch (from paper content)
+    val coveredAspects = remember(papers) {
+        papers.flatMap { p ->
+            val blob = "${p.title} ${p.abstract ?: ""} ${p.studyDesign ?: ""}".lowercase()
+            buildList {
+                if (blob.contains("prevalence") || blob.contains("incidence")) add("prevalence/incidence")
+                if (blob.contains("association") || blob.contains("correlation")) add("association")
+                if (blob.contains("comparison") || blob.contains("versus") || blob.contains(" compared ")) add("comparison")
+                if (blob.contains("systematic") || blob.contains("review") || blob.contains("meta-analysis")) add("systematic review")
+                if (blob.contains("cross-sectional") || blob.contains("survey")) add("cross-sectional")
+                if (blob.contains("case-control") || blob.contains("cohort")) add("case-control/cohort")
+                if (blob.contains("india") || blob.contains("indian")) add("Indian population")
+                if (blob.contains("children") || blob.contains("pediatric") || blob.contains("adolescent")) add("children/adolescents")
+                if (blob.contains("adult") || blob.contains("elderly")) add("adults/elderly")
+                if (blob.contains("knowledge") || blob.contains("attitude") || blob.contains("practice")) add("KAP")
+                if (blob.contains("risk factor") || blob.contains("protective")) add("risk/protective factors")
+                if (blob.contains("diagnosis") || blob.contains("detection") || blob.contains("screening")) add("diagnosis/screening")
+                if (blob.contains("treatment") || blob.contains("therapy") || blob.contains("management")) add("treatment/management")
+                if (blob.contains("awareness") || blob.contains("aware")) add("awareness")
+            }
+        }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
     }
 
     LazyColumn(
@@ -800,51 +833,88 @@ private fun GapsTab(ui: DeskUiState) {
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
-                    Text("Summary: all ${papers.size} papers", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    Spacer(Modifier.height(8.dp))
-                    if (coveredKeywords.isNotEmpty()) {
-                        Text("Covered:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Color(0xFF2E7D32))
-                        Spacer(Modifier.height(4.dp))
+                    Text("Search coverage", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Query: \"$query\"",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "${papers.size} papers retrieved",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+                    Text("What your query asked about:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Spacer(Modifier.height(4.dp))
+                    if (coveredQueryTerms.isNotEmpty()) {
+                        Text("Found in papers:", fontSize = 11.sp, color = Color(0xFF2E7D32))
+                        Spacer(Modifier.height(2.dp))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            coveredKeywords.forEach { kw ->
+                            coveredQueryTerms.forEach { kw ->
                                 Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF2E7D32).copy(alpha = 0.10f)) {
                                     Text(kw, fontSize = 10.sp, color = Color(0xFF2E7D32), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                 }
                             }
                         }
                     }
-                    if (notCovered.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("Not covered:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                    if (missingQueryTerms.isNotEmpty()) {
                         Spacer(Modifier.height(4.dp))
+                        Text("NOT found in any paper:", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.height(2.dp))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            notCovered.forEach { kw ->
+                            missingQueryTerms.forEach { kw ->
                                 Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer) {
                                     Text(kw, fontSize = 10.sp, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                                 }
                             }
                         }
                     }
+
+                    if (coveredAspects.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("What the papers actually study:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        Spacer(Modifier.height(4.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            coveredAspects.forEach { aspect ->
+                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                                    Text(aspect, fontSize = 10.sp, color = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Text("Key terms across all papers:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Spacer(Modifier.height(4.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        paperTerms.take(15).forEach { term ->
+                            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+                                Text(term, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                            }
+                        }
+                    }
                 }
             }
         }
-        items(papers) { paper -> PaperCoverageCard(paper = paper, subjectKeywords = subjectKeywords) }
+        item {
+            Text("Per-paper coverage", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
+        }
+        items(papers) { paper -> PaperCoverageCard(paper = paper, queryTerms = queryTerms) }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PaperCoverageCard(paper: Paper, subjectKeywords: List<String>) {
+private fun PaperCoverageCard(paper: Paper, queryTerms: List<String>) {
     var expanded by remember { mutableStateOf(false) }
     val blob = remember(paper) {
-        buildString {
-            append(paper.title)
-            append(" ")
-            append(paper.abstract ?: "")
-        }.lowercase()
+        "${paper.title} ${paper.abstract ?: ""}".lowercase()
     }
-    val covered = remember(blob, subjectKeywords) { subjectKeywords.filter { blob.contains(it) } }
-    val notCovered = remember(blob, subjectKeywords) { subjectKeywords.filter { !blob.contains(it) } }
+    val covered = remember(blob, queryTerms) { queryTerms.filter { blob.contains(it) } }
+    val notCovered = remember(blob, queryTerms) { queryTerms.filter { !blob.contains(it) } }
 
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
@@ -865,7 +935,7 @@ private fun PaperCoverageCard(paper: Paper, subjectKeywords: List<String>) {
             )
             Spacer(Modifier.height(6.dp))
             if (covered.isNotEmpty()) {
-                Text("Covered:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Color(0xFF2E7D32))
+                Text("Covers:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Color(0xFF2E7D32))
                 Spacer(Modifier.height(2.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     covered.forEach { kw ->
@@ -877,7 +947,7 @@ private fun PaperCoverageCard(paper: Paper, subjectKeywords: List<String>) {
             }
             if (notCovered.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
-                Text("Not covered:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                Text("Doesn't cover:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                 Spacer(Modifier.height(2.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     notCovered.forEach { kw ->
