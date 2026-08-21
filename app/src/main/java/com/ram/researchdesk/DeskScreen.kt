@@ -95,7 +95,7 @@ private const val TAB_CHAT = 7
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeskScreen(viewModel: DeskViewModel, onBack: () -> Unit) {
+fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: () -> Unit = {}) {
     val ui by viewModel.uiState.collectAsState()
     val subject = ui.subject
 
@@ -110,6 +110,7 @@ fun DeskScreen(viewModel: DeskViewModel, onBack: () -> Unit) {
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text(subject.name) },
@@ -699,7 +700,7 @@ private fun GapsTab(ui: DeskUiState) {
         return
     }
 
-    val subjectKeywords = remember(subject) { subject.keywords.map { it.lowercase() } }
+    val subjectKeywords = remember(subject) { subject.clusters.flatMap { it.keywords }.map { it.lowercase() } }
     val coveredKeywords = remember(papers, subjectKeywords) {
         buildSet {
             papers.forEach { p ->

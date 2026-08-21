@@ -2,6 +2,7 @@ package com.ram.researchdesk
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -340,7 +341,7 @@ class DeskViewModel(
     fun selectTab(index: Int) = _uiState.update { it.copy(tab = index) }
 
     fun setFilterCluster(clusterId: String?) = _uiState.update {
-        it.copy(filterClusterId = clusterId, tab = TAB_PAPERS)
+        it.copy(filterClusterId = clusterId, tab = 0)
     }
 
     fun setFilterDesign(design: String?) = _uiState.update {
@@ -452,7 +453,7 @@ class DeskViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(analyzing = true, thinkingText = "Analyzing paper content for gaps...") }
 
-            val subjectKeywords = subj.keywords.map { it.lowercase() }
+            val subjectKeywords = subj.clusters.flatMap { it.keywords }.map { it.lowercase() }
             val paperSummaries = papers.map { p ->
                 val blob = buildString {
                     append("TITLE: ${p.title}")
@@ -460,13 +461,13 @@ class DeskViewModel(
                     append("\nDESIGN: ${p.studyDesign ?: "unknown"}")
                     append("\nYEAR: ${p.year ?: "unknown"}")
                 }
-                val covered = subjectKeywords.filter { blob.lowercase().contains(it) }
-                val notCovered = subjectKeywords.filter { !blob.lowercase().contains(it) }
+                val covered = subjectKeywords.filter { kw -> blob.lowercase().contains(kw) }
+                val notCovered = subjectKeywords.filter { kw -> !blob.lowercase().contains(kw) }
                 Triple(p.title, covered, notCovered)
             }
 
             val allCovered = paperSummaries.flatMap { it.second }.distinct()
-            val allNotCovered = subjectKeywords.filter { kw -> paperSummaries.all { kw !in it.third } }
+            val allNotCovered = subjectKeywords.filter { kw -> paperSummaries.all { s -> kw !in s.third } }
 
             val paperBlock = papers.mapIndexed { i, p ->
                 "PAPER ${i + 1}: ${p.title}\n${p.abstract ?: "No abstract"}\nDesign: ${p.studyDesign ?: "unknown"}"

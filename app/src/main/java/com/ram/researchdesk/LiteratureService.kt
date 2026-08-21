@@ -296,7 +296,7 @@ Return ONLY the JSON.
     }
 }
 
-private fun extractSearchJson(raw: String): String {
+internal fun extractSearchJson(raw: String): String {
     val first = raw.indexOf('{')
     val last = raw.lastIndexOf('}')
     if (first >= 0 && last > first) return raw.substring(first, last + 1)

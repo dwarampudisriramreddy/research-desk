@@ -64,20 +64,55 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun HomeScreen(onOpenDesk: (yearId: String, subjectId: String) -> Unit) {
+fun CurriculumPrompt(modifier: Modifier = Modifier, onGoToCurriculum: () -> Unit) {
+    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.foundation.layout.Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(
+                    Icons.Default.School,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    "Pick a subject to start",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    "Go to Curriculum to select a year and subject",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(onClick = onGoToCurriculum) {
+                    Text("Open Curriculum")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun CurriculumScreen(modifier: Modifier = Modifier, onSelectSubject: (yearId: String, subjectId: String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val llmState by LlmRuntime.state.collectAsState()
     var expandedYearId by remember { mutableStateOf<String?>(null) }
     val loadedModel = LlmRuntime.loadedModel
 
-    // Auto-initialize on open, mirroring Flutter's initState -> _initLlm().
     LaunchedEffect(Unit) {
         LlmRuntime.ensureReady(context, autoDownload = true)
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Research Desk") }) },
+        modifier = modifier,
+        topBar = { TopAppBar(title = { Text("Curriculum") }) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -85,52 +120,10 @@ fun HomeScreen(onOpenDesk: (yearId: String, subjectId: String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text(
-                    text = "Live literature \u2192 gaps \u2192 feasible protocols",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            item {
-                Text(
-                    text = "What does the current literature show, and what can you realistically investigate?",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            item {
-                Text(
-                    text = "A research desk for BDS undergraduates in East Godavari. Papers are retrieved live " +
-                        "from PubMed, Scopus, Web of Science, Europe PMC, OpenAlex, and Crossref. Engineering and " +
-                        "biomaterials journals are included. Projects are sized for 8\u201312 weeks and \u20B90\u2013\u20B95,000.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            item {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    listOf(
-                        "3-month window",
-                        "Scopus + WoS",
-                        "Dental\u2013engineering blend",
-                        "No invented citations",
-                    ).forEach { label -> Pill(label) }
-                }
-            }
-            item {
                 ModelStatusCard(
                     llmState = llmState,
                     loadedModel = loadedModel,
                     onRetry = { scope.launch { LlmRuntime.ensureReady(context) } },
-                )
-            }
-            item {
-                Text(
-                    text = "Open a year, pick a subject",
-                    style = MaterialTheme.typography.titleMedium,
                 )
             }
             items(YEARS, key = { it.id }) { y ->
@@ -140,15 +133,7 @@ fun HomeScreen(onOpenDesk: (yearId: String, subjectId: String) -> Unit) {
                     onToggle = {
                         expandedYearId = if (expandedYearId == y.id) null else y.id
                     },
-                    onOpenSubject = { subjectId -> onOpenDesk(y.id, subjectId) },
-                )
-            }
-            item {
-                Text(
-                    text = "Open a year, pick a subject, then read the landscape and live papers before any " +
-                        "project title is generated.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    onOpenSubject = { subjectId -> onSelectSubject(y.id, subjectId) },
                 )
             }
         }
