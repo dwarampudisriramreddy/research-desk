@@ -380,16 +380,6 @@ class DeskViewModel(
             }
             try {
                 val snapshot = _uiState.value
-                _uiState.update { it.copy(thinkingText = "Expanding search query with AI...") }
-                val searchQueries = withContext(Dispatchers.IO) {
-                    expandSearchQuery(subj.name, q)
-                }
-                if (searchQueries != null) {
-                    debugLog.log("SEARCH", "Query expanded: PubMed=${searchQueries.pubmed.take(80)}...")
-                    debugLog.log("SEARCH", "Keywords: ${searchQueries.keywords.joinToString(", ")}")
-                } else {
-                    debugLog.log("SEARCH", "LLM unavailable, using raw query")
-                }
                 _uiState.update { it.copy(thinkingText = "Searching ${snapshot.sourcesEnabled.size} databases...") }
                 val result = withContext(Dispatchers.IO) {
                     runLiteratureSearch(
@@ -397,7 +387,6 @@ class DeskViewModel(
                         yearFrom = 2021,
                         yearTo = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR),
                         sources = snapshot.sourcesEnabled.toList(),
-                        searchQueries = searchQueries,
                     )
                 }
                 _uiState.update { it.copy(thinkingText = "Clustering ${result.papers.size} papers by topic...") }
