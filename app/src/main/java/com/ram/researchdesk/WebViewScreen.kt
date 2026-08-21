@@ -63,8 +63,8 @@ fun WebViewScreen(url: String, title: String = "", onBack: () -> Unit) {
                 },
             )
         },
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             if (progress in 1..99) {
                 LinearProgressIndicator(
                     progress = { progress / 100f },

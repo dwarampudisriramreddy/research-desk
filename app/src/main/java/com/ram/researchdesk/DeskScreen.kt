@@ -96,7 +96,7 @@ private const val TAB_CHAT = 7
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: () -> Unit = {}, onSaveIdea: (ProjectIdea) -> Unit = {}, onOpenUrl: (url: String, title: String) -> Unit = {}) {
+fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: () -> Unit = {}, onSaveIdea: (ProjectIdea) -> Unit = {}, onOpenUrl: (String, String) -> Unit = { _, _ -> }) {
     val ui by viewModel.uiState.collectAsState()
     val subject = ui.subject
 
@@ -307,7 +307,7 @@ private fun SourceStatusRow(ui: DeskUiState) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel, onSaveIdea: (ProjectIdea) -> Unit = {}, onOpenUrl: (url: String, title: String) -> Unit = {}) {
+private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel, onSaveIdea: (ProjectIdea) -> Unit = {}, onOpenUrl: (String, String) -> Unit = { _, _ -> }) {
     when (ui.tab) {
         TAB_DEBUG -> DebugTab(ui = ui, viewModel = viewModel)
         TAB_CHAT -> ChatTab(ui = ui, viewModel = viewModel)
@@ -459,7 +459,7 @@ private fun SearchTransparencyCard(meta: SearchMeta) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PapersTab(ui: DeskUiState, viewModel: DeskViewModel, onOpenUrl: (url: String, title: String) -> Unit = {}) {
+private fun PapersTab(ui: DeskUiState, viewModel: DeskViewModel, onOpenUrl: (String, String) -> Unit = { _, _ -> }) {
     val papers = ui.filteredPapers
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -531,7 +531,7 @@ private fun PaperFilters(ui: DeskUiState, viewModel: DeskViewModel) {
 }
 
 @Composable
-private fun PaperCard(paper: Paper, onOpenUrl: (url: String, title: String) -> Unit = {}) {
+private fun PaperCard(paper: Paper, onOpenUrl: (String, String) -> Unit = { _, _ -> }) {
     var expanded by remember { mutableStateOf(false) }
 
     Card(
