@@ -158,17 +158,20 @@ private fun Pill(label: String) {
 }
 
 // ---------------------------------------------------------------------------
-// Subject picker (shown when no subject selected)
+// Subject picker → search box + subject dropdown
 // ---------------------------------------------------------------------------
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subjectId: String) -> Unit) {
+fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subjectId: String, query: String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val llmState by LlmRuntime.state.collectAsState()
     val loadedModel = LlmRuntime.loadedModel
     val allSubjects = remember { YEARS.flatMap { y -> subjectsForYear(y.id).map { y to it } } }
+    var query by remember { mutableStateOf("") }
+    var selectedSubject by remember { mutableStateOf<Pair<Year, Subject>?>(null) }
+    var dropdownExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         LlmRuntime.ensureReady(context, autoDownload = true)
@@ -178,20 +181,70 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
         modifier = modifier,
         topBar = { TopAppBar(title = { Text("Research Desk") }) },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                ModelStatusCard(
-                    llmState = llmState,
-                    loadedModel = loadedModel,
-                    onRetry = { scope.launch { LlmRuntime.ensureReady(context) } },
+            ModelStatusCard(
+                llmState = llmState,
+                loadedModel = loadedModel,
+                onRetry = { scope.launch { LlmRuntime.ensureReady(context) } },
+            )
+
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search query") },
+                placeholder = { Text("e.g. dental caries prevalence among school children") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+                maxLines = 4,
+            )
+
+            ExposedDropdownMenuBox(
+                expanded = dropdownExpanded,
+                onExpandedChange = { dropdownExpanded = !dropdownExpanded },
+            ) {
+                OutlinedTextField(
+                    value = selectedSubject?.second?.name ?: "",
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Subject") },
+                    placeholder = { Text("Select a subject") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor(),
                 )
+                ExposedDropdownMenu(
+                    expanded = dropdownExpanded,
+                    onDismissRequest = { dropdownExpanded = false },
+                ) {
+                    allSubjects.forEach { (year, subject) ->
+                        DropdownMenuItem(
+                            text = { Text("${subject.name}  (${year.numeral} BDS)") },
+                            onClick = {
+                                selectedSubject = year to subject
+                                dropdownExpanded = false
+                            },
+                        )
+                    }
+                }
             }
-            items(allSubjects, key = { it.second.id }) { (year, subject) ->
-                SubjectCard(subject = subject, yearLabel = year.numeral, onClick = { onSelect(year.id, subject.id) })
+
+            Button(
+                onClick = {
+                    val sel = selectedSubject ?: return@Button
+                    if (query.isBlank()) return@Button
+                    onSelect(sel.first.id, sel.second.id, query.trim())
+                },
+                enabled = selectedSubject != null && query.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Search, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Search")
             }
         }
     }
@@ -484,74 +537,4 @@ private fun ModelStatusCard(
 
 // ---------------------------------------------------------------------------
 // Year + subject cards
-// ---------------------------------------------------------------------------
 
-@Composable
-private fun SubjectCard(subject: Subject, yearLabel: String, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(28.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                        Text(
-                            yearLabel,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    subject.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (subject.blurb.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    subject.blurb,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (subject.domains.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    subject.domains.forEach { d ->
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        ) {
-                            Text(
-                                d,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}

@@ -96,9 +96,16 @@ private const val TAB_CHAT = 7
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: () -> Unit = {}, onSaveIdea: (ProjectIdea) -> Unit = {}, onOpenUrl: (String, String) -> Unit = { _, _ -> }) {
+fun DeskScreen(viewModel: DeskViewModel, initialQuery: String = "", modifier: Modifier = Modifier, onBack: () -> Unit = {}, onSaveIdea: (ProjectIdea) -> Unit = {}, onOpenUrl: (String, String) -> Unit = { _, _ -> }) {
     val ui by viewModel.uiState.collectAsState()
     val subject = ui.subject
+
+    LaunchedEffect(initialQuery) {
+        if (initialQuery.isNotBlank() && ui.query.isBlank()) {
+            viewModel.setQuery(initialQuery)
+            viewModel.runSearch()
+        }
+    }
 
     if (subject == null) {
         Scaffold(topBar = { TopAppBar(title = { Text("Error") }) }) { padding ->
