@@ -69,7 +69,7 @@ fun HomeScreen(onOpenDesk: (yearId: String, subjectId: String) -> Unit) {
     val scope = rememberCoroutineScope()
     val llmState by LlmRuntime.state.collectAsState()
     var expandedYearId by remember { mutableStateOf<String?>(null) }
-    var selectedModel by remember { mutableStateOf { ModelDownloader.selectedModel(context) } }
+    var selectedModel by remember { mutableStateOf(ModelDownloader.selectedModel(context)) }
     val loadedModel = LlmRuntime.loadedModel
     val isModelLoaded = loadedModel != null && llmState is LlmRuntimeState.Ready
     val isDifferentModel = selectedModel != loadedModel && isModelLoaded
@@ -270,6 +270,9 @@ private fun ModelSelector(
         }
     }
 }
+
+@Composable
+private fun Pill(label: String) {
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
