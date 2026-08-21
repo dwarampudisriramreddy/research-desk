@@ -522,16 +522,17 @@ $paperBlocks
 CLUSTERS:
 $clusterSummary
 
-Your task: identify specific research gaps based on what these papers ACTUALLY measured, found, and concluded.
+Your task: identify what the papers collectively covered and what they collectively did NOT cover.
 
-For EACH gap, answer:
-1. What specific variables, methods, or populations did these papers cover?
-2. What specific things did they NOT cover or measure?
-3. Where do papers contradict each other or use conflicting methods?
+Think about:
+1. What variables, measurements, and outcomes did the papers as a group examine?
+2. What variables, measurements, or outcomes did none of the papers examine?
+3. What populations or settings are missing from the evidence?
+4. What contradictions exist between papers?
 
 Return a JSON array of 4-6 gaps. Each gap object:
 {
-  "statement": "2-3 sentences: state exactly what papers X, Y, Z covered (e.g., 'Papers 1-3 measured X using Y method in Z population') and then state what is missing (e.g., 'but none measured W, and no study looked at V'). Be specific — name the papers and their actual findings.",
+  "statement": "2-3 sentences summarizing: the papers collectively covered [list what they covered], but collectively did NOT cover [list what is missing]. Example: 'The ${papers.size} papers collectively measured X, Y, and Z using methods A and B. However, none of the papers measured W, and no study examined V in any population.'",
   "confidence": "high|moderate|possible",
   "novelty": "underexplored-in-india|methodological-extension|cross-cultural-validation|synthesis-needed|temporal-renewal",
   "candidateQuestion": "a specific, testable research question with measurable variables that addresses exactly what is missing",
@@ -541,7 +542,8 @@ Return a JSON array of 4-6 gaps. Each gap object:
 }
 
 RULES:
-- Each gap MUST state what specific papers covered and what they did NOT cover
+- Each gap MUST state what the papers collectively covered and what they collectively did NOT cover
+- Do NOT list individual papers — summarize the collective coverage
 - Do NOT say "more research is needed" — say WHAT is missing and WHAT specific study would fill it
 - Do NOT repeat the same gap in different words
 - Focus on gaps a BDS student can fill with calipers, pH strips, probes, ImageJ, questionnaires
