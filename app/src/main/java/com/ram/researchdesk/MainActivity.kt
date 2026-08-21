@@ -56,62 +56,76 @@ class MainActivity : ComponentActivity() {
                     var selectedTab by remember { mutableIntStateOf(0) }
                     var selectedYearId by remember { mutableStateOf<String?>(null) }
                     var selectedSubjectId by remember { mutableStateOf<String?>(null) }
+                    var webViewUrl by remember { mutableStateOf<String?>(null) }
+                    var webViewTitle by remember { mutableStateOf("") }
                     val savedIdeas = remember { mutableStateOf<List<ProjectIdea>>(emptyList()) }
 
                     val hasDesk = selectedYearId != null && selectedSubjectId != null
 
-                    Scaffold(
-                        bottomBar = {
-                            NavigationBar {
-                                NavigationBarItem(
-                                    selected = selectedTab == 0,
-                                    onClick = { selectedTab = 0 },
-                                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
-                                    label = { Text("Desk") },
-                                )
-                                NavigationBarItem(
-                                    selected = selectedTab == 1,
-                                    onClick = { selectedTab = 1 },
-                                    icon = { Icon(Icons.Default.FavoriteBorder, contentDescription = null) },
-                                    label = { Text("Curriculum") },
-                                )
-                            }
-                        },
-                    ) { innerPadding ->
-                        when (selectedTab) {
-                            0 -> {
-                                if (hasDesk) {
-                                    val vm: DeskViewModel = viewModel(
-                                        key = "desk-${selectedYearId!!}-${selectedSubjectId!!}",
-                                        factory = DeskViewModel.factory(application, selectedYearId!!, selectedSubjectId!!),
+                    if (webViewUrl != null) {
+                        WebViewScreen(
+                            url = webViewUrl!!,
+                            title = webViewTitle,
+                            onBack = { webViewUrl = null },
+                        )
+                    } else {
+                        Scaffold(
+                            bottomBar = {
+                                NavigationBar {
+                                    NavigationBarItem(
+                                        selected = selectedTab == 0,
+                                        onClick = { selectedTab = 0 },
+                                        icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                                        label = { Text("Desk") },
                                     )
-                                    DeskScreen(
-                                        viewModel = vm,
-                                        modifier = Modifier.padding(innerPadding),
-                                        onSaveIdea = { idea ->
-                                            if (savedIdeas.value.none { it.title == idea.title }) {
-                                                savedIdeas.value = savedIdeas.value + idea
-                                            }
-                                        },
+                                    NavigationBarItem(
+                                        selected = selectedTab == 1,
+                                        onClick = { selectedTab = 1 },
+                                        icon = { Icon(Icons.Default.FavoriteBorder, contentDescription = null) },
+                                        label = { Text("Curriculum") },
                                     )
-                                } else {
-                                    SubjectPicker(
+                                }
+                            },
+                        ) { innerPadding ->
+                            when (selectedTab) {
+                                0 -> {
+                                    if (hasDesk) {
+                                        val vm: DeskViewModel = viewModel(
+                                            key = "desk-${selectedYearId!!}-${selectedSubjectId!!}",
+                                            factory = DeskViewModel.factory(application, selectedYearId!!, selectedSubjectId!!),
+                                        )
+                                        DeskScreen(
+                                            viewModel = vm,
+                                            modifier = Modifier.padding(innerPadding),
+                                            onSaveIdea = { idea ->
+                                                if (savedIdeas.value.none { it.title == idea.title }) {
+                                                    savedIdeas.value = savedIdeas.value + idea
+                                                }
+                                            },
+                                            onOpenUrl = { url, title ->
+                                                webViewUrl = url
+                                                webViewTitle = title
+                                            },
+                                        )
+                                    } else {
+                                        SubjectPicker(
+                                            modifier = Modifier.padding(innerPadding),
+                                            onSelect = { yearId, subjectId ->
+                                                selectedYearId = yearId
+                                                selectedSubjectId = subjectId
+                                            },
+                                        )
+                                    }
+                                }
+                                1 -> {
+                                    SavedIdeasScreen(
                                         modifier = Modifier.padding(innerPadding),
-                                        onSelect = { yearId, subjectId ->
-                                            selectedYearId = yearId
-                                            selectedSubjectId = subjectId
+                                        savedIdeas = savedIdeas.value,
+                                        onRemove = { idea ->
+                                            savedIdeas.value = savedIdeas.value.filter { it.title != idea.title }
                                         },
                                     )
                                 }
-                            }
-                            1 -> {
-                                SavedIdeasScreen(
-                                    modifier = Modifier.padding(innerPadding),
-                                    savedIdeas = savedIdeas.value,
-                                    onRemove = { idea ->
-                                        savedIdeas.value = savedIdeas.value.filter { it.title != idea.title }
-                                    },
-                                )
                             }
                         }
                     }

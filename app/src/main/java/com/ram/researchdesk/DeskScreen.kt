@@ -96,7 +96,7 @@ private const val TAB_CHAT = 7
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: () -> Unit = {}, onSaveIdea: (ProjectIdea) -> Unit = {}) {
+fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: () -> Unit = {}, onSaveIdea: (ProjectIdea) -> Unit = {}, onOpenUrl: (url: String, title: String) -> Unit = {}) {
     val ui by viewModel.uiState.collectAsState()
     val subject = ui.subject
 
@@ -205,7 +205,7 @@ fun DeskScreen(viewModel: DeskViewModel, modifier: Modifier = Modifier, onBack: 
                 if (ui.error != null && ui.litResult == null) {
                     ErrorView(error = ui.error!!, onRetry = viewModel::runSearch)
                 } else {
-                    TabBody(ui = ui, viewModel = viewModel, onSaveIdea = onSaveIdea)
+                    TabBody(ui = ui, viewModel = viewModel, onSaveIdea = onSaveIdea, onOpenUrl = onOpenUrl)
                 }
             }
         }
@@ -307,7 +307,7 @@ private fun SourceStatusRow(ui: DeskUiState) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel, onSaveIdea: (ProjectIdea) -> Unit = {}) {
+private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel, onSaveIdea: (ProjectIdea) -> Unit = {}, onOpenUrl: (url: String, title: String) -> Unit = {}) {
     when (ui.tab) {
         TAB_DEBUG -> DebugTab(ui = ui, viewModel = viewModel)
         TAB_CHAT -> ChatTab(ui = ui, viewModel = viewModel)
@@ -323,7 +323,7 @@ private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel, onSaveIdea: (Proj
             } else {
                 when (ui.tab) {
                     TAB_LANDSCAPE -> LandscapeTab(ui = ui, viewModel = viewModel)
-                    TAB_PAPERS -> PapersTab(ui = ui, viewModel = viewModel)
+                    TAB_PAPERS -> PapersTab(ui = ui, viewModel = viewModel, onOpenUrl = onOpenUrl)
                     TAB_CLUSTERS -> ClustersTab(ui = ui, viewModel = viewModel)
                     TAB_GAPS -> GapsTab(ui = ui)
                     TAB_PROJECTS -> ProjectsTab(ui = ui, viewModel = viewModel, onSaveIdea = onSaveIdea)
@@ -459,7 +459,7 @@ private fun SearchTransparencyCard(meta: SearchMeta) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PapersTab(ui: DeskUiState, viewModel: DeskViewModel) {
+private fun PapersTab(ui: DeskUiState, viewModel: DeskViewModel, onOpenUrl: (url: String, title: String) -> Unit = {}) {
     val papers = ui.filteredPapers
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -476,7 +476,7 @@ private fun PapersTab(ui: DeskUiState, viewModel: DeskViewModel) {
                 }
             }
         } else {
-            items(papers) { paper -> PaperCard(paper = paper) }
+            items(papers) { paper -> PaperCard(paper = paper, onOpenUrl = onOpenUrl) }
         }
     }
 }
@@ -531,9 +531,8 @@ private fun PaperFilters(ui: DeskUiState, viewModel: DeskViewModel) {
 }
 
 @Composable
-private fun PaperCard(paper: Paper) {
+private fun PaperCard(paper: Paper, onOpenUrl: (url: String, title: String) -> Unit = {}) {
     var expanded by remember { mutableStateOf(false) }
-    val uriHandler = LocalUriHandler.current
 
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize(),
@@ -597,7 +596,7 @@ private fun PaperCard(paper: Paper) {
                     val link = paper.url ?: paper.doi?.let { "https://doi.org/$it" }
                     if (link != null) {
                         Spacer(Modifier.height(6.dp))
-                        TextButton(onClick = { runCatching { uriHandler.openUri(link) } }) {
+                        TextButton(onClick = { onOpenUrl(link, paper.title) }) {
                             Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(Modifier.width(4.dp))
                             Text("Open source page", fontSize = 12.sp)
