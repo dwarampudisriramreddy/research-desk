@@ -671,33 +671,13 @@ private fun GapCard(gap: Gap) {
             }
             Spacer(Modifier.height(8.dp))
             Text(gap.statement, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            if (gap.novelty.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Novelty: ${gap.novelty}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (gap.why.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Text("Why it matters", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text(gap.why, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (gap.unknown.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Text("What is unknown", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text(gap.unknown, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             if (gap.candidateQuestion.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                Text("Candidate question", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Text(gap.candidateQuestion, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (gap.feasibilityNote.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                Text("Feasibility", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text(gap.feasibilityNote, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                Text(gap.feasibilityNote, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -761,13 +741,8 @@ private fun ProjectCard(project: Project, onGenerateProtocol: (Project) -> Unit)
 
             ProtocolSection("Research question", project.researchQuestion)
             ProtocolSection("Hypothesis", project.hypothesis)
-            ProtocolSection("Evidence basis", project.evidenceBasis)
-            ProtocolSection("Gap addressed", project.gap)
-            ProtocolSection("Why different", project.whyDifferent)
             ProtocolSection("Study design", project.studyDesign)
-            ProtocolSection("Setting", project.setting)
             ProtocolSection("Population", project.population)
-            ProtocolSection("Sample size approach", project.sampleSizeApproach)
             ProtocolSection("Primary outcome", project.primaryOutcome)
             if (project.secondaryOutcomes.isNotEmpty()) {
                 ProtocolSection("Secondary outcomes", project.secondaryOutcomes.joinToString("; "))
@@ -777,18 +752,6 @@ private fun ProjectCard(project: Project, onGenerateProtocol: (Project) -> Unit)
             ProtocolSection("Ethics", project.ethics)
             if (project.limitations.isNotEmpty()) {
                 ProtocolSection("Limitations", project.limitations.joinToString("\n") { "\u2022 $it" })
-            }
-            if (project.publicationPotential.isNotEmpty()) {
-                ProtocolSection("Publication potential", project.publicationPotential)
-            }
-            if (project.similarity.isNotEmpty()) {
-                Text(
-                    text = project.similarity,
-                    fontSize = 11.sp,
-                    fontStyle = FontStyle.Italic,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
             }
 
             Spacer(Modifier.height(10.dp))

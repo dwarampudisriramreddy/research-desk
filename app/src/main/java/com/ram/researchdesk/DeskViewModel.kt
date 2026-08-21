@@ -522,30 +522,27 @@ $paperBlocks
 CLUSTERS:
 $clusterSummary
 
-Your task: identify specific, actionable research gaps based on what these papers ACTUALLY found, measured, and concluded. Do NOT produce generic gaps. Each gap must reference specific papers and their specific findings.
+Your task: identify specific research gaps based on what these papers ACTUALLY measured, found, and concluded.
 
-For EACH gap, think:
-1. What specific finding or measurement is missing from this body of literature?
-2. What specific contradiction or inconsistency exists between papers?
-3. What specific subpopulation or variable has NOT been studied?
-4. What specific methodological weakness appears in multiple papers?
+For EACH gap, answer:
+1. What specific variables, methods, or populations did these papers cover?
+2. What specific things did they NOT cover or measure?
+3. Where do papers contradict each other or use conflicting methods?
 
 Return a JSON array of 4-6 gaps. Each gap object:
 {
-  "statement": "2-3 sentence gap statement referencing SPECIFIC papers and their SPECIFIC findings (e.g., 'Paper X found Y using method Z, but no study has measured W in this context')",
+  "statement": "2-3 sentences: state exactly what papers X, Y, Z covered (e.g., 'Papers 1-3 measured X using Y method in Z population') and then state what is missing (e.g., 'but none measured W, and no study looked at V'). Be specific — name the papers and their actual findings.",
   "confidence": "high|moderate|possible",
   "novelty": "underexplored-in-india|methodological-extension|cross-cultural-validation|synthesis-needed|temporal-renewal",
-  "why": "1-2 sentences: why filling this gap matters for dental practice or public health in India",
-  "unknown": "what specific question remains unanswered",
-  "candidateQuestion": "a specific, testable research question with measurable variables",
+  "candidateQuestion": "a specific, testable research question with measurable variables that addresses exactly what is missing",
   "feasibilityNote": "how an undergrad can do this in 8-12 weeks using only departmental equipment",
   "category": "population|method|evidence|geographic|temporal|outcome",
   "relatedPapers": "list paper numbers (1, 2, 3...) that this gap relates to"
 }
 
 RULES:
-- Each gap statement MUST mention a specific paper number and what that paper found
-- Do NOT say "more research is needed" — say WHAT research and WHY
+- Each gap MUST state what specific papers covered and what they did NOT cover
+- Do NOT say "more research is needed" — say WHAT is missing and WHAT specific study would fill it
 - Do NOT repeat the same gap in different words
 - Focus on gaps a BDS student can fill with calipers, pH strips, probes, ImageJ, questionnaires
 - No extra radiation, no new blood tests, no UTM
