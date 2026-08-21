@@ -646,6 +646,7 @@ private fun ClustersTab(ui: DeskUiState, viewModel: DeskViewModel) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onClick: () -> Unit = {}) {
     val memberPapers = cluster.paperIds.mapNotNull { papersById[it] }

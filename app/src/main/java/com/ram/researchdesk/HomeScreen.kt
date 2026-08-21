@@ -209,6 +209,7 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
 // Saved ideas screen (Curriculum tab)
 // ---------------------------------------------------------------------------
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SavedIdeasScreen(modifier: Modifier = Modifier, savedIdeas: List<ProjectIdea>, onRemove: (ProjectIdea) -> Unit) {
     Scaffold(
