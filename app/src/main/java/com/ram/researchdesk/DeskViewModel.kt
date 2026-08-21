@@ -293,8 +293,9 @@ class DeskViewModel(
     subjectId: String,
 ) : AndroidViewModel(application) {
 
-    private val subject: Subject? = getSubject(yearId, subjectId)
-    private val year: Year? = getYear(yearId)
+    private val subject: Subject? = SUBJECTS.firstOrNull { it.name.equals(subjectId, ignoreCase = true) }
+        ?: Subject(id = subjectId, name = subjectId, year = "")
+    private val year: Year? = null
 
     private val _uiState = MutableStateFlow(
         DeskUiState(

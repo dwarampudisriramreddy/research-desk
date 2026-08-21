@@ -66,6 +66,28 @@ import kotlinx.coroutines.launch
 // Subject picker → search box + subject dropdown
 // ---------------------------------------------------------------------------
 
+val BDS_SUBJECTS = listOf(
+    "Anatomy",
+    "Physiology",
+    "Biochemistry",
+    "Dental Anatomy and Histology",
+    "Pharmacology",
+    "General Pathology",
+    "Microbiology",
+    "Dental Materials",
+    "General Medicine",
+    "General Surgery",
+    "Oral Pathology",
+    "Oral Medicine and Radiology",
+    "Oral and Maxillofacial Surgery",
+    "Periodontology",
+    "Prosthodontics",
+    "Conservative and Endodontics",
+    "Orthodontics",
+    "Pedodontics",
+    "Public Health Dentistry",
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subjectId: String, query: String) -> Unit) {
@@ -73,9 +95,8 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
     val scope = rememberCoroutineScope()
     val llmState by LlmRuntime.state.collectAsState()
     val loadedModel = LlmRuntime.loadedModel
-    val allSubjects = remember { YEARS.flatMap { y -> subjectsForYear(y.id).map { y to it } } }
     var query by remember { mutableStateOf("") }
-    var selectedSubject by remember { mutableStateOf<Pair<Year, Subject>?>(null) }
+    var selectedSubject by remember { mutableStateOf<String?>(null) }
     var dropdownExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -114,7 +135,7 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
                 onExpandedChange = { dropdownExpanded = !dropdownExpanded },
             ) {
                 OutlinedTextField(
-                    value = selectedSubject?.second?.name ?: "",
+                    value = selectedSubject ?: "",
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Subject") },
@@ -126,11 +147,11 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
                     expanded = dropdownExpanded,
                     onDismissRequest = { dropdownExpanded = false },
                 ) {
-                    allSubjects.forEach { (year, subject) ->
+                    BDS_SUBJECTS.forEach { name ->
                         DropdownMenuItem(
-                            text = { Text("${subject.name}  (${year.numeral} BDS)") },
+                            text = { Text(name) },
                             onClick = {
-                                selectedSubject = year to subject
+                                selectedSubject = name
                                 dropdownExpanded = false
                             },
                         )
@@ -140,9 +161,9 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
 
             Button(
                 onClick = {
-                    val sel = selectedSubject ?: return@Button
+                    val subj = selectedSubject ?: return@Button
                     if (query.isBlank()) return@Button
-                    onSelect(sel.first.id, sel.second.id, query.trim())
+                    onSelect(subj, subj, query.trim())
                 },
                 enabled = selectedSubject != null && query.isNotBlank(),
                 modifier = Modifier.fillMaxWidth(),
