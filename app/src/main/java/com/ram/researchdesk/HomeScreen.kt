@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
@@ -33,7 +35,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -136,7 +137,12 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
                     readOnly = true,
                     label = { Text("Subject") },
                     placeholder = { Text("Select a subject") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = if (dropdownExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Box(
