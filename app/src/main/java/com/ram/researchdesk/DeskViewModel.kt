@@ -42,19 +42,17 @@ object LlmRuntime {
 
     private val mutex = Mutex()
     private var engineRef: LlmEngine? = null
+    private var appContext: Context? = null
 
     val ready: Boolean get() = engineRef?.isReady == true
     var backendName: String = ""
         private set
 
-    /**
-     * Ensures the model is downloaded and the engine is initialized.
-     * Safe to call repeatedly and from multiple screens; concurrent callers
-     * are serialized by a mutex.
-     */
+    /** Call from foreground to re-init engine if it was released on background. */
     suspend fun ensureReady(context: Context, autoDownload: Boolean = true): Boolean =
         mutex.withLock {
             val app = context.applicationContext
+            appContext = app
 
             if (engineRef?.isReady == true) {
                 _state.value = LlmRuntimeState.Ready
@@ -69,13 +67,20 @@ object LlmRuntime {
                 debugLog.log("LLM", "=== MODEL DOWNLOAD START ===")
                 debugLog.log("LLM", "Model not cached, downloading (~550 MB)")
                 _state.value = LlmRuntimeState.Downloading(DownloadProgress(0, 1))
+                LlmNotificationService.startDownload(app)
                 val result = ModelDownloader.download(app) { progress ->
                     _state.value = LlmRuntimeState.Downloading(progress)
+                    LlmNotificationService.updateProgress(
+                        app,
+                        (progress.percent * 100).toInt(),
+                        "Downloading... ${(progress.bytesReceived / 1024 / 1024)}/${(progress.totalBytes / 1024 / 1024)} MB",
+                    )
                 }
                 val failure = result.exceptionOrNull()
                 if (failure != null) {
                     debugLog.log("LLM", "=== DOWNLOAD FAILED: $failure ===")
                     _state.value = LlmRuntimeState.Error("Download failed: ${failure.message}")
+                    LlmNotificationService.stop(app)
                     return@withLock false
                 }
                 debugLog.log("LLM", "=== DOWNLOAD COMPLETE ===")
@@ -84,6 +89,7 @@ object LlmRuntime {
             }
 
             _state.value = LlmRuntimeState.Initializing
+            LlmNotificationService.markInit(app)
             debugLog.log("LLM", "=== LLM INITIALIZATION START ===")
             val eng = LlmEngine(app)
             withContext(Dispatchers.Default) {
@@ -95,14 +101,25 @@ object LlmRuntime {
                 backendName = eng.backendName
                 debugLog.log("LLM", "=== ENGINE READY (${eng.backendName}) ===")
                 _state.value = LlmRuntimeState.Ready
+                LlmNotificationService.markReady(app, eng.backendName)
                 true
             } else {
                 eng.close()
                 debugLog.log("LLM", "=== LLM INIT FAILED: ${eng.error} ===")
                 _state.value = LlmRuntimeState.Error(eng.error ?: "Initialization failed")
+                LlmNotificationService.stop(app)
                 false
             }
         }
+
+    /** Release engine resources when app goes to background. Does NOT delete model file. */
+    fun releaseOnBackground() {
+        val eng = engineRef ?: return
+        debugLog.log("LLM", "Releasing engine (background)")
+        eng.close()
+        engineRef = null
+        _state.value = LlmRuntimeState.Initializing
+    }
 
     /** One-shot chat turn with a fresh system prompt (mirrors Flutter's per-call conversation). */
     suspend fun chat(systemPrompt: String, userMessage: String): String {
@@ -119,6 +136,7 @@ object LlmRuntime {
         engineRef?.close()
         engineRef = null
         ModelDownloader.deleteModel(app)
+        LlmNotificationService.stop(app)
         debugLog.log("LLM", "Model deleted from storage")
         _state.value = LlmRuntimeState.NotDownloaded
     }

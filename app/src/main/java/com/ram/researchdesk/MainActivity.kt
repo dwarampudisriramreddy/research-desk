@@ -11,9 +11,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 
 /** Simple app navigation state (no external navigation library). */
 sealed class Route {
@@ -25,6 +29,24 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Release LLM engine when app goes to background, re-init on foreground
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    LlmRuntime.releaseOnBackground()
+                }
+                Lifecycle.Event.ON_START -> {
+                    if (ModelDownloader.isDownloaded(applicationContext)) {
+                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                            LlmRuntime.ensureReady(applicationContext)
+                        }
+                    }
+                }
+                else -> {}
+            }
+        })
+
         setContent {
             MaterialTheme {
                 Surface(
