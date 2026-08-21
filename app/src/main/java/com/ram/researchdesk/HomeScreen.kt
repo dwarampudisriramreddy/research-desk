@@ -1,6 +1,5 @@
 package com.ram.researchdesk
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -168,8 +167,8 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val llmState by LlmRuntime.state.collectAsState()
-    var expandedYearId by remember { mutableStateOf<String?>(null) }
     val loadedModel = LlmRuntime.loadedModel
+    val allSubjects = remember { YEARS.flatMap { y -> subjectsForYear(y.id).map { y to it } } }
 
     LaunchedEffect(Unit) {
         LlmRuntime.ensureReady(context, autoDownload = true)
@@ -182,7 +181,7 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
                 ModelStatusCard(
@@ -191,15 +190,8 @@ fun SubjectPicker(modifier: Modifier = Modifier, onSelect: (yearId: String, subj
                     onRetry = { scope.launch { LlmRuntime.ensureReady(context) } },
                 )
             }
-            items(YEARS, key = { it.id }) { y ->
-                YearCard(
-                    year = y,
-                    expanded = expandedYearId == y.id,
-                    onToggle = {
-                        expandedYearId = if (expandedYearId == y.id) null else y.id
-                    },
-                    onOpenSubject = { subjectId -> onSelect(y.id, subjectId) },
-                )
+            items(allSubjects, key = { it.second.id }) { (year, subject) ->
+                SubjectCard(subject = subject, yearLabel = year.numeral, onClick = { onSelect(year.id, subject.id) })
             }
         }
     }
@@ -494,91 +486,32 @@ private fun ModelStatusCard(
 // Year + subject cards
 // ---------------------------------------------------------------------------
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun YearCard(
-    year: Year,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    onOpenSubject: (subjectId: String) -> Unit,
-) {
-    val subjects = remember(year.id) { subjectsForYear(year.id) }
-
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onToggle)
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(10.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {}
-                    Text(
-                        text = year.numeral,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(year.name, style = MaterialTheme.typography.titleMedium)
-                    if (year.kicker.isNotEmpty()) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            year.kicker,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Text(
-                    text = "${subjects.size} subjects",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            AnimatedVisibility(visible = expanded) {
-                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
-                    subjects.forEach { s ->
-                        SubjectCard(subject = s, onClick = { onOpenSubject(s.id) })
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SubjectCard(subject: Subject, onClick: () -> Unit) {
+private fun SubjectCard(subject: Subject, yearLabel: String, onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Text(
+                            yearLabel,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
                 Text(
                     subject.name,
                     style = MaterialTheme.typography.titleMedium,
