@@ -286,6 +286,55 @@ private fun Pill(label: String) {
 }
 
 // ---------------------------------------------------------------------------
+// Download progress card — isolated to prevent flickering
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun DownloadingCard(state: LlmRuntimeState.Downloading, model: LlmModel) {
+    val percent = (state.progress.percent * 100).toInt()
+    val received = state.progress.bytesReceived / 1024 / 1024
+    val total = state.progress.totalBytes / 1024 / 1024
+    val speed = state.progress.bytesPerSecond / 1024
+
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(16.dp),
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "Downloading ${model.displayName} (\u2248${model.sizeMB} MB)...",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "$percent%",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { state.progress.percent.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(4.dp)),
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "$received / $total MB \u00B7 $speed KB/s \u00B7 keep the app open...",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // LLM status card
 // ---------------------------------------------------------------------------
 
@@ -320,46 +369,7 @@ private fun LlmCard(state: LlmRuntimeState, model: LlmModel, loadedModel: LlmMod
             }
         }
 
-        is LlmRuntimeState.Downloading -> {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-                Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(16.dp),
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            "Downloading ${model.displayName} (\u2248${model.sizeMB} MB)...",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            "${(state.progress.percent * 100).toInt()}%",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = { state.progress.percent.coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(4.dp)),
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "${state.progress.bytesReceived / 1024 / 1024} / " +
-                            "${state.progress.totalBytes / 1024 / 1024} MB \u00B7 " +
-                            "${state.progress.bytesPerSecond / 1024} KB/s \u00B7 keep the app open...",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
-                    )
-                }
-            }
-        }
+        is LlmRuntimeState.Downloading -> DownloadingCard(state, model)
 
         is LlmRuntimeState.Initializing, LlmRuntimeState.Checking -> {
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
