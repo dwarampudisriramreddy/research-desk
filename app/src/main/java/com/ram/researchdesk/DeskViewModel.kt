@@ -1149,12 +1149,20 @@ RULES:
         return raw.substring(start, end + 1)
     }
 
-    private fun extractKeywords(text: String): List<String> =
-        text.lowercase()
+    private fun extractKeywords(text: String): List<String> {
+        val stop = setOf(
+            "the", "and", "for", "are", "but", "not", "with", "that", "this", "was", "were", "has", "have",
+            "from", "into", "also", "than", "been", "may", "can", "its", "their", "about", "between",
+            "among", "other", "which", "what", "when", "where", "how", "who", "does", "did", "will",
+            "would", "could", "should", "might", "shall", "must", "very", "much", "well", "only",
+            "even", "still", "already", "high", "low", "more", "most", "some", "many", "few",
+        )
+        return text.lowercase()
             .replace(Regex("[^a-z0-9\\s]"), " ")
             .split(Regex("\\s+"))
-            .filter { it.length > 3 }
+            .filter { it.length > 3 && it !in stop }
             .take(6)
+    }
 
     companion object {
         internal fun hashId(s: String): String {

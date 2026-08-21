@@ -16,6 +16,35 @@ private val STOP_WORDS = setOf(
     "sectional", "observational", "objective", "aim", "purpose", "background",
     "conclusion", "conclusions", "methods", "results",
     "doi", "http", "https", "org", "com", "edu", "gov", "article",
+    "were", "they", "colour", "their", "there", "these", "those", "both",
+    "each", "every", "such", "where", "while", "during", "without", "within",
+    "however", "since", "until", "although", "whether", "because", "though",
+    "being", "having", "doing", "done", "does", "isn", "aren", "wasn", "won",
+    "shall", "might", "must", "need", "ought", "very", "much", "well", "also",
+    "only", "even", "still", "already", "yet", "ever", "never", "always",
+    "often", "sometimes", "usually", "rather", "quite", "nearly", "almost",
+    "enough", "few", "several", "least", "less", "most", "first", "last",
+    "next", "previous", "above", "below", "here", "there", "away", "back",
+    "over", "under", "before", "after", "through", "along", "across", "around",
+    "found", "shown", "suggest", "indicate", "demonstrate", "reveal", "reported",
+    "noted", "observed", "determined", "evaluated", "assessed", "examined",
+    "investigated", "measured", "recorded", "collected", "analyzed", "analysed",
+    "compared", "identified", "described", "presented", "included", "consisted",
+    "participated", "recruited", "selected", "enrolled", "received", "underwent",
+    "performed", "conducted", "carried", "provided", "presented", "showed",
+    "high", "low", "increased", "decreased", "significant", "significantly",
+    "higher", "lower", "greater", "smaller", "respectively", "approximately",
+    "total", "mean", "average", "range", "value", "values", "level", "levels",
+    "rate", "rates", "score", "scores", "index", "group", "groups", "data",
+    "sample", "samples", "population", "subjects", "participants", "patients",
+    "two", "three", "four", "five", "six", "seven", "eight", "ten", "percent",
+    "table", "figure", "figures", "tables", "text", "supplementary", "appendix",
+    "acknowledgement", "interest", "conflict", "funding", "ethics", "review",
+    "approved", "consent", "written", "voluntary", "deceased", "available",
+    "online", "print", "published", "accepted", "submitted", "revised", "editor",
+    "editorial", "letter", "comment", "reply", "erratum", "corrigendum",
+    "including", "particularly", "specifically", "mainly", "largely", "primarily",
+    "potentially", "probably", "likely", "unlikely", "possibly", "actually",
 )
 
 fun blob(a: Paper): String =
@@ -33,22 +62,29 @@ fun extractTerms(text: String): List<String> {
     val words = text.lowercase()
         .replace(Regex("""[^a-z0-9\s-]"""), " ")
         .split(Regex("""\s+"""))
-        .filter { it.length > 2 && it !in STOP_WORDS }
+        .filter { it.length > 3 && it !in STOP_WORDS }
 
     val bigrams = mutableListOf<String>()
     for (i in 0 until words.size - 1) {
         val b = "${words[i]} ${words[i + 1]}"
-        if (words[i] !in STOP_WORDS && words[i + 1] !in STOP_WORDS) {
-            bigrams.add(b)
-        }
+        bigrams.add(b)
+    }
+
+    val trigrams = mutableListOf<String>()
+    for (i in 0 until words.size - 2) {
+        val t = "${words[i]} ${words[i + 1]} ${words[i + 2]}"
+        trigrams.add(t)
     }
 
     val freq = linkedMapOf<String, Int>()
-    for (w in words) {
-        freq[w] = (freq[w] ?: 0) + 1
+    for (b in trigrams) {
+        freq[b] = (freq[b] ?: 0) + 4
     }
     for (b in bigrams) {
         freq[b] = (freq[b] ?: 0) + 2
+    }
+    for (w in words) {
+        freq[w] = (freq[w] ?: 0) + 1
     }
 
     return freq.entries.sortedByDescending { it.value }.take(8).map { it.key }

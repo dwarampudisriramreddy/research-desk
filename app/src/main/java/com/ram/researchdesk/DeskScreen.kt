@@ -782,10 +782,16 @@ private fun GapsTab(ui: DeskUiState) {
 
     // Extract topics from the search query itself
     val queryTerms = remember(query) {
+        val stop = setOf(
+            "the", "and", "for", "are", "but", "not", "with", "that", "this", "was", "were", "has", "have",
+            "from", "into", "also", "than", "been", "may", "can", "its", "their", "about", "between",
+            "among", "each", "other", "which", "what", "when", "where", "how", "who", "does", "did",
+            "will", "would", "could", "should", "might", "shall", "must",
+        )
         query.lowercase()
             .replace(Regex("[^a-z0-9\\s]"), " ")
             .split(Regex("\\s+"))
-            .filter { it.length > 2 }
+            .filter { it.length > 3 && it !in stop }
             .distinct()
     }
 
@@ -794,9 +800,13 @@ private fun GapsTab(ui: DeskUiState) {
         val allText = papers.joinToString(" ") { p ->
             "${p.title} ${p.abstract ?: ""}"
         }.lowercase()
-        // Extract 2-3 word phrases and single meaningful words
         val words = allText.replace(Regex("[^a-z0-9\\s]"), " ").split(Regex("\\s+")).filter { it.length > 3 }
-        val freq = words.groupingBy { it }.eachCount()
+        val bigrams = words.windowed(2).map { it.joinToString(" ") }
+        val trigrams = words.windowed(3).map { it.joinToString(" ") }
+        val freq = linkedMapOf<String, Int>()
+        trigrams.forEach { freq[it] = (freq[it] ?: 0) + 4 }
+        bigrams.forEach { freq[it] = (freq[it] ?: 0) + 2 }
+        words.forEach { freq[it] = (freq[it] ?: 0) + 1 }
         freq.entries.sortedByDescending { it.value }.take(30).map { it.key }
     }
 

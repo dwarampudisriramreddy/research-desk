@@ -255,7 +255,7 @@ Return JSON with these fields:
 {
   "pubmed": "Boolean query with MeSH terms AND free-text synonyms, using field tags like [MeSH Terms], [Title/Abstract]. Use AND/OR correctly. Keep under 300 chars.",
   "generic": "Space-separated keywords with synonyms, no Boolean operators. Good for OpenAlex, Crossref, Europe PMC. 8-12 key terms max.",
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5", "keyword6"]
+  "keywords": ["phrase1", "phrase2", "phrase3", "phrase4", "phrase5", "phrase6"]
 }
 
 RULES for pubmed field:
@@ -272,8 +272,12 @@ RULES for generic field:
 - 8-12 terms covering the concept broadly
 
 RULES for keywords:
-- 6 most important search terms
-- Include both specific and broad terms
+- Return 6 MEANINGFUL multi-word search phrases, NOT single words
+- Each keyword should be 2-4 words that describe a specific aspect of the research
+- Examples of GOOD keywords: "dental caries prevalence", "oral hygiene practices", "periodontal disease risk factors", "fluoride effectiveness children"
+- Examples of BAD single words to NEVER return: "were", "colour", "they", "study", "data", "results", "patients", "high", "low"
+- Every keyword must contain at least one domain-specific dental/medical term
+- Each phrase must be something a researcher would actually type into a search engine
 
 Return ONLY the JSON.
         """.trimIndent()
