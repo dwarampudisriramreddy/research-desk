@@ -446,38 +446,41 @@ class DeskViewModel(
 
     fun generateProjectIdeas() {
         val subj = subject ?: return
-        val papers = _uiState.value.papers
+        val state = _uiState.value
+        val papers = state.papers
+        val query = state.query
         if (papers.isEmpty()) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(analyzing = true, thinkingText = "Analyzing paper content for gaps...") }
 
-            val subjectKeywords = subj.clusters.flatMap { it.keywords }.map { it.lowercase() }
-            val paperSummaries = papers.map { p ->
-                val blob = buildString {
-                    append("TITLE: ${p.title}")
-                    append("\nABSTRACT: ${p.abstract ?: "No abstract"}")
-                    append("\nDESIGN: ${p.studyDesign ?: "unknown"}")
-                    append("\nYEAR: ${p.year ?: "unknown"}")
-                }
-                val covered = subjectKeywords.filter { kw -> blob.lowercase().contains(kw) }
-                val notCovered = subjectKeywords.filter { kw -> !blob.lowercase().contains(kw) }
-                Triple(p.title, covered, notCovered)
-            }
-
-            val allCovered = paperSummaries.flatMap { it.second }.distinct()
-            val allNotCovered = subjectKeywords.filter { kw -> paperSummaries.all { s -> kw !in s.third } }
+            val queryTerms = query.lowercase()
+                .replace(Regex("[^a-z0-9\\s]"), " ")
+                .split(Regex("\\s+"))
+                .filter { it.length > 2 }
+                .distinct()
 
             val paperBlock = papers.mapIndexed { i, p ->
                 "PAPER ${i + 1}: ${p.title}\n${p.abstract ?: "No abstract"}\nDesign: ${p.studyDesign ?: "unknown"}"
             }.joinToString("\n\n")
 
+            val allText = papers.joinToString(" ") { "${it.title} ${it.abstract ?: ""}" }.lowercase()
+            val covered = queryTerms.filter { allText.contains(it) }
+            val notCovered = queryTerms.filter { !allText.contains(it) }
+
             if (LlmRuntime.ready) {
                 _uiState.update { it.copy(thinkingText = "Generating project ideas from gaps...") }
-                val ideas = generateProjectIdeasWithLlm(subj.name, paperBlock, allCovered, allNotCovered)
-                _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
+                val ideas = generateProjectIdeasWithLlm(subj.name, query, paperBlock, covered, notCovered)
+                if (ideas.isEmpty()) {
+                    _uiState.update { it.copy(thinkingText = "LLM returned no ideas, using rule-based...") }
+                    kotlinx.coroutines.delay(500)
+                    val fallback = buildProjectIdeas(subj, papers, covered, notCovered)
+                    _uiState.update { it.copy(projectIdeas = fallback, analyzing = false, thinkingText = "") }
+                } else {
+                    _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
+                }
             } else {
-                val ideas = buildProjectIdeas(subj, papers, allCovered, allNotCovered)
+                val ideas = buildProjectIdeas(subj, papers, covered, notCovered)
                 _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
             }
         }
@@ -485,6 +488,7 @@ class DeskViewModel(
 
     private suspend fun generateProjectIdeasWithLlm(
         subjectName: String,
+        query: String,
         paperBlock: String,
         covered: List<String>,
         notCovered: List<String>,
@@ -492,43 +496,49 @@ class DeskViewModel(
         val prompt = """
 You are a dental research methodology expert for BDS undergraduates in East Godavari, Andhra Pradesh, India.
 
-Below are the papers retrieved for $subjectName. Read each abstract carefully.
+The search query was: "$query"
+Subject: $subjectName
+
+Below are the papers retrieved. Read each abstract carefully.
 
 PAPERS:
 $paperBlock
 
-Topics already covered by these papers: ${covered.joinToString(", ")}
-Topics NOT covered by any paper: ${notCovered.joinToString(", ")}
+Terms from the search query found in papers: ${covered.joinToString(", ")}
+Terms from the search query NOT found in any paper: ${notCovered.joinToString(", ")}
 
-Your task: generate 3-4 specific, original research project ideas that fill the gaps left by these papers.
+Your task: generate 3-4 specific, original research project ideas that fill the gaps — things the search query asked about but the retrieved papers did NOT address.
 
-For each project idea, you must:
-1. Read what each paper actually studied (methods, outcomes, populations)
-2. Identify what NONE of the papers studied — specific variables, measurements, populations, or settings that are missing
-3. Design a project that a BDS undergraduate can complete in 8-12 weeks using only departmental equipment
+For each project idea:
+1. Focus on what NONE of the papers studied — specific variables, measurements, populations, or settings that are missing
+2. Design a project a BDS undergraduate can complete in 8-12 weeks using departmental equipment only
 
-Return a JSON array of 3-4 project ideas:
+Return a JSON object with an "ideas" array:
 {
-  "title": "specific project title",
-  "rationale": "2-3 sentences: explain what the existing papers covered and what specific gap this project fills. Reference what was missing.",
-  "researchQuestion": "a precise, testable question with measurable variables",
-  "hypothesis": "directional hypothesis with expected direction of effect",
-  "design": "study design (cross-sectional, case-control, etc.)",
-  "population": "specific population and sampling strategy",
-  "primaryOutcome": "the main variable to measure, with instrument",
-  "methods": "step-by-step data collection plan",
-  "duration": "realistic timeline in weeks",
-  "feasibility": "what departmental equipment is needed",
-  "notCoveredBy": ["paper titles this project specifically addresses the gap of"]
+  "ideas": [
+    {
+      "title": "specific project title",
+      "rationale": "2-3 sentences: what the existing papers covered and what specific gap this fills",
+      "researchQuestion": "precise, testable question with measurable variables",
+      "hypothesis": "directional hypothesis",
+      "design": "study design",
+      "population": "specific population and sampling",
+      "primaryOutcome": "main variable to measure, with instrument",
+      "methods": "step-by-step data collection",
+      "duration": "realistic timeline in weeks",
+      "feasibility": "departmental equipment needed",
+      "notCoveredBy": ["paper titles this addresses the gap of"]
+    }
+  ]
 }
 
 RULES:
-- Each project MUST be based on what the papers did NOT cover — read the abstracts carefully
+- Each project MUST be based on what papers did NOT cover
 - Do NOT repeat what papers already studied
-- Use instruments available in a dental college: calipers, pH strips, probes, ImageJ, questionnaires
+- Use instruments in a dental college: calipers, pH strips, probes, ImageJ, questionnaires
 - No extra radiation, no new blood tests, no UTM
 - Be specific — name exact variables and measurements
-- Return ONLY the JSON array
+- Return ONLY the JSON
         """.trimIndent()
 
         return try {
