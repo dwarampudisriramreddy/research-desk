@@ -839,15 +839,14 @@ private fun PaperCoverageCard(paper: Paper, subjectKeywords: List<String>) {
 @Composable
 private fun ProjectsTab(ui: DeskUiState, viewModel: DeskViewModel) {
     val ideas = ui.projectIdeas
-    LaunchedEffect(ui.papers.size) {
-        if (ideas.isEmpty() && ui.papers.isNotEmpty()) {
-            viewModel.generateProjectIdeas()
-        }
-    }
     if (ideas.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Analyzing papers for gaps...", textAlign = TextAlign.Center, fontSize = 13.sp)
+                Text("Project ideas based on what papers did NOT cover.", textAlign = TextAlign.Center, fontSize = 13.sp)
+                Spacer(Modifier.height(12.dp))
+                androidx.compose.material3.Button(onClick = { viewModel.generateProjectIdeas() }) {
+                    Text("Generate project ideas")
+                }
             }
         }
         return

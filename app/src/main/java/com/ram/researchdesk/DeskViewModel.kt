@@ -406,7 +406,6 @@ class DeskViewModel(
                 _uiState.update {
                     it.copy(litResult = result, clusters = clusters, searching = false)
                 }
-                analyzeWithLlm(clusters, result.papers)
             } catch (e: Exception) {
                 debugLog.log("SEARCH", "Search failed: $e")
                 _uiState.update {
