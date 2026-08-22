@@ -445,20 +445,26 @@ class DeskViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(analyzing = true, thinkingText = "Analyzing paper content for gaps...") }
 
-            val paperSummaries = papers.take(10).mapIndexed { i, p ->
-                "${i + 1}. ${p.title}. ${p.abstract ?: "No abstract available."}"
+            val paperSummaries = papers.take(5).mapIndexed { i, p ->
+                "${i + 1}. ${p.title}. ${p.abstract?.take(150) ?: "No abstract."}"
             }.joinToString("\n")
 
             if (LlmRuntime.ready) {
-                _uiState.update { it.copy(thinkingText = "Generating project ideas...") }
-                val ideas = generateProjectIdeasWithLlm(subj.name, query, paperSummaries)
-                if (ideas.isEmpty()) {
-                    _uiState.update { it.copy(thinkingText = "LLM returned no ideas, using rule-based...") }
+                try {
+                    System.gc()
                     kotlinx.coroutines.delay(500)
+                    _uiState.update { it.copy(thinkingText = "Generating project ideas...") }
+                    val ideas = generateProjectIdeasWithLlm(subj.name, query, paperSummaries)
+                    if (ideas.isEmpty()) {
+                        val fallback = buildProjectIdeasFallback(subj, papers)
+                        _uiState.update { it.copy(projectIdeas = fallback, analyzing = false, thinkingText = "") }
+                    } else {
+                        _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
+                    }
+                } catch (e: Exception) {
+                    Log.e("PROJECTS", "LLM project ideas crashed: $e")
                     val fallback = buildProjectIdeasFallback(subj, papers)
                     _uiState.update { it.copy(projectIdeas = fallback, analyzing = false, thinkingText = "") }
-                } else {
-                    _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
                 }
             } else {
                 val ideas = buildProjectIdeasFallback(subj, papers)
@@ -532,14 +538,21 @@ RULES:
         viewModelScope.launch {
             _uiState.update { it.copy(analyzing = true, thinkingText = "Analyzing coverage...") }
 
-            val paperSummaries = papers.take(8).mapIndexed { i, p ->
-                "${i + 1}. ${p.title}. ${p.abstract ?: "No abstract available."}"
+            val paperSummaries = papers.take(5).mapIndexed { i, p ->
+                "${i + 1}. ${p.title}. ${p.abstract?.take(150) ?: "No abstract."}"
             }.joinToString("\n")
 
             if (LlmRuntime.ready) {
-                _uiState.update { it.copy(thinkingText = "Reading papers and analyzing gaps...") }
-                val analysis = analyzeCoverageWithLlmImpl(query, paperSummaries)
-                _uiState.update { it.copy(coverageAnalysis = analysis, analyzing = false, thinkingText = "") }
+                try {
+                    System.gc()
+                    kotlinx.coroutines.delay(500)
+                    _uiState.update { it.copy(thinkingText = "Reading papers and analyzing gaps...") }
+                    val analysis = analyzeCoverageWithLlmImpl(query, paperSummaries)
+                    _uiState.update { it.copy(coverageAnalysis = analysis, analyzing = false, thinkingText = "") }
+                } catch (e: Exception) {
+                    Log.e("GAPS", "LLM coverage analysis crashed: $e")
+                    _uiState.update { it.copy(coverageAnalysis = "", analyzing = false, thinkingText = "") }
+                }
             } else {
                 _uiState.update { it.copy(coverageAnalysis = "", analyzing = false, thinkingText = "") }
             }
@@ -547,28 +560,22 @@ RULES:
     }
 
     private suspend fun analyzeCoverageWithLlmImpl(query: String, paperSummaries: String): String {
-        val prompt = """
-You are a dental research analyst. Analyze these papers against the search query.
+        val prompt = """Analyze these papers against the search query. Write 3 paragraphs.
 
-SEARCH QUERY: "$query"
+Query: "$query"
 
-PAPERS RETRIEVED:
+Papers:
 $paperSummaries
 
-Write a clear coverage analysis covering:
-1. What the search query was asking about
-2. What the papers actually studied (in detail)
-3. What aspects of the query are well covered
-4. What important aspects are MISSING or poorly covered
-5. 3-4 specific research gaps that need future investigation
-
-Be specific and concrete. Use 3-4 paragraphs. Do NOT use JSON.
+Paragraph 1: What the query asked about
+Paragraph 2: What papers actually studied
+Paragraph 3: What is MISSING - specific gaps for future research
         """.trimIndent()
 
         return try {
-            LlmRuntime.chat("You are a dental research analyst. Write a clear analysis.", prompt)
+            LlmRuntime.chat("You are a dental research analyst.", prompt)
         } catch (e: Exception) {
-            Log.e("GAPS", "LLM coverage analysis failed: $e")
+            Log.e("GAPS", "LLM coverage failed: $e")
             ""
         }
     }
