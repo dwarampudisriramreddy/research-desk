@@ -449,7 +449,7 @@ class DeskViewModel(
                 "${i + 1}. ${p.title}. ${p.abstract?.take(150) ?: "No abstract."}"
             }.joinToString("\n")
 
-            val curriculumTopics = subj.domains.joinToString("; ")
+            val curriculumTopics = subj.topics.joinToString("; ")
 
             if (LlmRuntime.ready) {
                 try {
@@ -550,7 +550,7 @@ RULES:
                 "${i + 1}. ${p.title}. ${p.abstract?.take(150) ?: "No abstract."}"
             }.joinToString("\n")
 
-            val curriculumTopics = subj.domains.joinToString("; ")
+            val curriculumTopics = subj.topics.joinToString("; ")
 
             if (LlmRuntime.ready) {
                 try {
