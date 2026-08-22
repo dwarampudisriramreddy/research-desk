@@ -449,12 +449,14 @@ class DeskViewModel(
                 "${i + 1}. ${p.title}. ${p.abstract?.take(150) ?: "No abstract."}"
             }.joinToString("\n")
 
+            val curriculumTopics = subj.domains.joinToString("; ")
+
             if (LlmRuntime.ready) {
                 try {
                     System.gc()
                     kotlinx.coroutines.delay(500)
                     _uiState.update { it.copy(thinkingText = "Generating project ideas...") }
-                    val ideas = generateProjectIdeasWithLlm(subj.name, query, paperSummaries)
+                    val ideas = generateProjectIdeasWithLlm(subj.name, query, paperSummaries, curriculumTopics)
                     if (ideas.isEmpty()) {
                         val fallback = buildProjectIdeasFallback(subj, papers)
                         _uiState.update { it.copy(projectIdeas = fallback, analyzing = false, thinkingText = "") }
@@ -477,26 +479,31 @@ class DeskViewModel(
         subjectName: String,
         query: String,
         paperSummaries: String,
+        curriculumTopics: String,
     ): List<ProjectIdea> {
         val prompt = """
 You are a BDS dental research expert in India.
 
-Search query: "$query"
-Subject: $subjectName
+SUBJECT: $subjectName
+CURRICULUM TOPICS: $curriculumTopics
+
+SEARCH QUERY: "$query"
 
 TOP PAPERS RETRIEVED:
 $paperSummaries
 
-Generate 3 project ideas that fill GAPS — topics the query asked about but papers did NOT address.
+Generate 3 ORIGINAL project ideas that a BDS undergraduate can do in 8-12 weeks using departmental equipment only. Each idea must be based on a CURRICULUM TOPIC from the list above that is NOT covered by the papers.
 
-Each idea needs: title, rationale (2 sentences), researchQuestion, hypothesis, design, population, primaryOutcome, methods, duration, feasibility.
+For each idea, provide: title, rationale (2 sentences), researchQuestion, hypothesis, design, population, primaryOutcome, methods, duration, feasibility.
 
 Reply with ONLY this JSON:
 {"ideas":[{"title":"...","rationale":"...","researchQuestion":"...","hypothesis":"...","design":"...","population":"...","primaryOutcome":"...","methods":"...","duration":"...","feasibility":"..."}]}
 
 RULES:
-- Each project addresses a gap NOT covered by the papers above
-- BDS undergrad can do it in 8-12 weeks with departmental equipment
+- Each project must relate to a curriculum topic listed above
+- Each project addresses a gap NOT covered by the papers
+- BDS undergrad can complete it in 8-12 weeks
+- Use departmental equipment: calipers, pH strips, probes, questionnaires, ImageJ
 - No extra radiation, no new blood tests
 - Name exact variables and measurements
         """.trimIndent()
@@ -530,6 +537,7 @@ RULES:
     // --- LLM coverage analysis for gaps tab ------------------------------------
 
     fun analyzeCoverageWithLlm() {
+        val subj = subject ?: return
         val state = _uiState.value
         val papers = state.papers
         val query = state.query
@@ -542,12 +550,14 @@ RULES:
                 "${i + 1}. ${p.title}. ${p.abstract?.take(150) ?: "No abstract."}"
             }.joinToString("\n")
 
+            val curriculumTopics = subj.domains.joinToString("; ")
+
             if (LlmRuntime.ready) {
                 try {
                     System.gc()
                     kotlinx.coroutines.delay(500)
                     _uiState.update { it.copy(thinkingText = "Reading papers and analyzing gaps...") }
-                    val analysis = analyzeCoverageWithLlmImpl(query, paperSummaries)
+                    val analysis = analyzeCoverageWithLlmImpl(query, paperSummaries, curriculumTopics)
                     _uiState.update { it.copy(coverageAnalysis = analysis, analyzing = false, thinkingText = "") }
                 } catch (e: Exception) {
                     Log.e("GAPS", "LLM coverage analysis crashed: $e")
@@ -559,17 +569,19 @@ RULES:
         }
     }
 
-    private suspend fun analyzeCoverageWithLlmImpl(query: String, paperSummaries: String): String {
-        val prompt = """Analyze these papers against the search query. Write 3 paragraphs.
+    private suspend fun analyzeCoverageWithLlmImpl(query: String, paperSummaries: String, curriculumTopics: String): String {
+        val prompt = """Analyze these papers against the search query for a dental student. Write 3 paragraphs.
 
-Query: "$query"
+SUBJECT CURRICULUM TOPICS: $curriculumTopics
 
-Papers:
+SEARCH QUERY: "$query"
+
+PAPERS RETRIEVED:
 $paperSummaries
 
 Paragraph 1: What the query asked about
-Paragraph 2: What papers actually studied
-Paragraph 3: What is MISSING - specific gaps for future research
+Paragraph 2: What papers actually studied (be specific about topics)
+Paragraph 3: What CURRICULUM TOPICS from the list above are MISSING or poorly covered — these are specific gaps for future research
         """.trimIndent()
 
         return try {
