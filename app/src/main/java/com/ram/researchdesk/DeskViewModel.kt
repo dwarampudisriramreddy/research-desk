@@ -449,7 +449,7 @@ class DeskViewModel(
                 "${i + 1}. ${p.title}. ${p.abstract?.take(150) ?: "No abstract."}"
             }.joinToString("\n")
 
-            val curriculumTopics = subj.topics.joinToString("; ")
+            val curriculumTopics = formatCurriculumForLlm(subj)
 
             if (LlmRuntime.ready) {
                 try {
@@ -492,7 +492,7 @@ SEARCH QUERY: "$query"
 TOP PAPERS RETRIEVED:
 $paperSummaries
 
-Generate 3 ORIGINAL project ideas that a BDS undergraduate can do in 8-12 weeks using departmental equipment only. Each idea must be based on a CURRICULUM TOPIC from the list above that is NOT covered by the papers.
+Generate 3 ORIGINAL project ideas that a BDS undergraduate can do in 8-12 weeks using departmental equipment only. Each idea must be based on a CURRICULUM TOPIC from the categorized list above that is NOT covered by the papers.
 
 For each idea, provide: title, rationale (2 sentences), researchQuestion, hypothesis, design, population, primaryOutcome, methods, duration, feasibility.
 
@@ -550,7 +550,7 @@ RULES:
                 "${i + 1}. ${p.title}. ${p.abstract?.take(150) ?: "No abstract."}"
             }.joinToString("\n")
 
-            val curriculumTopics = subj.topics.joinToString("; ")
+            val curriculumTopics = formatCurriculumForLlm(subj)
 
             if (LlmRuntime.ready) {
                 try {
@@ -581,7 +581,7 @@ $paperSummaries
 
 Paragraph 1: What the query asked about
 Paragraph 2: What papers actually studied (be specific about topics)
-Paragraph 3: What CURRICULUM TOPICS from the list above are MISSING or poorly covered — these are specific gaps for future research
+Paragraph 3: What CURRICULUM TOPICS from the categorized list above are MISSING or poorly covered — these are specific gaps for future research
         """.trimIndent()
 
         return try {

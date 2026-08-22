@@ -35,7 +35,32 @@ data class Subject(
     val equipment: List<String> = emptyList(),
     val ethicsWatch: List<String> = emptyList(),
     val topics: List<String> = emptyList(),
+    val topicCategories: Map<String, List<String>> = emptyMap(),
 )
+
+/**
+ * Format curriculum topics into a categorized string for LLM prompts.
+ * Groups flat topics under domain headings so the model sees structured context.
+ */
+fun formatCurriculumForLlm(subject: Subject): String {
+    val cats = subject.topicCategories.ifEmpty {
+        val grouped = linkedMapOf<String, MutableList<String>>()
+        for (topic in subject.topics) {
+            val topicLower = topic.lowercase()
+            val matchedDomain = subject.domains.firstOrNull { domain ->
+                domain.split(" ", "(", "&").any { word ->
+                    word.length >= 4 && topicLower.contains(word.lowercase())
+                }
+            } ?: subject.domains.firstOrNull() ?: "General"
+            grouped.getOrPut(matchedDomain) { mutableListOf() }.add(topic)
+        }
+        grouped
+    }
+    if (cats.isEmpty()) return subject.topics.joinToString("; ")
+    return cats.entries.joinToString("\n") { (category, topics) ->
+        "- $category: ${topics.joinToString("; ")}"
+    }
+}
 
 val YEARS: List<Year> = listOf(
     Year(
