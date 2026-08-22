@@ -255,6 +255,7 @@ data class DeskUiState(
     val filterIndiaOnly: Boolean = false,
     val thinkingText: String = "",
     val projectIdeas: List<ProjectIdea> = emptyList(),
+    val coverageAnalysis: String = "",
 ) {
     val papers: List<Paper> get() = litResult?.papers ?: emptyList()
 
@@ -444,33 +445,23 @@ class DeskViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(analyzing = true, thinkingText = "Analyzing paper content for gaps...") }
 
-            val queryTerms = query.lowercase()
-                .replace(Regex("[^a-z0-9\\s]"), " ")
-                .split(Regex("\\s+"))
-                .filter { it.length > 2 }
-                .distinct()
-
-            val paperBlock = papers.mapIndexed { i, p ->
-                "PAPER ${i + 1}: ${p.title}\n${p.abstract ?: "No abstract"}\nDesign: ${p.studyDesign ?: "unknown"}"
-            }.joinToString("\n\n")
-
-            val allText = papers.joinToString(" ") { "${it.title} ${it.abstract ?: ""}" }.lowercase()
-            val covered = queryTerms.filter { allText.contains(it) }
-            val notCovered = queryTerms.filter { !allText.contains(it) }
+            val paperSummaries = papers.take(10).mapIndexed { i, p ->
+                "${i + 1}. ${p.title}. ${p.abstract ?: "No abstract available."}"
+            }.joinToString("\n")
 
             if (LlmRuntime.ready) {
-                _uiState.update { it.copy(thinkingText = "Generating project ideas from gaps...") }
-                val ideas = generateProjectIdeasWithLlm(subj.name, query, paperBlock, covered, notCovered)
+                _uiState.update { it.copy(thinkingText = "Generating project ideas...") }
+                val ideas = generateProjectIdeasWithLlm(subj.name, query, paperSummaries)
                 if (ideas.isEmpty()) {
                     _uiState.update { it.copy(thinkingText = "LLM returned no ideas, using rule-based...") }
                     kotlinx.coroutines.delay(500)
-                    val fallback = buildProjectIdeas(subj, papers, covered, notCovered)
+                    val fallback = buildProjectIdeasFallback(subj, papers)
                     _uiState.update { it.copy(projectIdeas = fallback, analyzing = false, thinkingText = "") }
                 } else {
                     _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
                 }
             } else {
-                val ideas = buildProjectIdeas(subj, papers, covered, notCovered)
+                val ideas = buildProjectIdeasFallback(subj, papers)
                 _uiState.update { it.copy(projectIdeas = ideas, analyzing = false, thinkingText = "") }
             }
         }
@@ -479,56 +470,29 @@ class DeskViewModel(
     private suspend fun generateProjectIdeasWithLlm(
         subjectName: String,
         query: String,
-        paperBlock: String,
-        covered: List<String>,
-        notCovered: List<String>,
+        paperSummaries: String,
     ): List<ProjectIdea> {
         val prompt = """
-You are a dental research methodology expert for BDS undergraduates in East Godavari, Andhra Pradesh, India.
+You are a BDS dental research expert in India.
 
-The search query was: "$query"
+Search query: "$query"
 Subject: $subjectName
 
-Below are the papers retrieved. Read each abstract carefully.
+TOP PAPERS RETRIEVED:
+$paperSummaries
 
-PAPERS:
-$paperBlock
+Generate 3 project ideas that fill GAPS — topics the query asked about but papers did NOT address.
 
-Terms from the search query found in papers: ${covered.joinToString(", ")}
-Terms from the search query NOT found in any paper: ${notCovered.joinToString(", ")}
+Each idea needs: title, rationale (2 sentences), researchQuestion, hypothesis, design, population, primaryOutcome, methods, duration, feasibility.
 
-Your task: generate 3-4 specific, original research project ideas that fill the gaps — things the search query asked about but the retrieved papers did NOT address.
-
-For each project idea:
-1. Focus on what NONE of the papers studied — specific variables, measurements, populations, or settings that are missing
-2. Design a project a BDS undergraduate can complete in 8-12 weeks using departmental equipment only
-
-Return a JSON object with an "ideas" array:
-{
-  "ideas": [
-    {
-      "title": "specific project title",
-      "rationale": "2-3 sentences: what the existing papers covered and what specific gap this fills",
-      "researchQuestion": "precise, testable question with measurable variables",
-      "hypothesis": "directional hypothesis",
-      "design": "study design",
-      "population": "specific population and sampling",
-      "primaryOutcome": "main variable to measure, with instrument",
-      "methods": "step-by-step data collection",
-      "duration": "realistic timeline in weeks",
-      "feasibility": "departmental equipment needed",
-      "notCoveredBy": ["paper titles this addresses the gap of"]
-    }
-  ]
-}
+Reply with ONLY this JSON:
+{"ideas":[{"title":"...","rationale":"...","researchQuestion":"...","hypothesis":"...","design":"...","population":"...","primaryOutcome":"...","methods":"...","duration":"...","feasibility":"..."}]}
 
 RULES:
-- Each project MUST be based on what papers did NOT cover
-- Do NOT repeat what papers already studied
-- Use instruments in a dental college: calipers, pH strips, probes, ImageJ, questionnaires
-- No extra radiation, no new blood tests, no UTM
-- Be specific — name exact variables and measurements
-- Return ONLY the JSON
+- Each project addresses a gap NOT covered by the papers above
+- BDS undergrad can do it in 8-12 weeks with departmental equipment
+- No extra radiation, no new blood tests
+- Name exact variables and measurements
         """.trimIndent()
 
         return try {
@@ -548,9 +512,7 @@ RULES:
                     methods = obj.optString("methods", ""),
                     duration = obj.optString("duration", ""),
                     feasibility = obj.optString("feasibility", ""),
-                    notCoveredBy = obj.optJSONArray("notCoveredBy")?.let { a ->
-                        (0 until a.length()).map { a.getString(it) }
-                    } ?: emptyList(),
+                    notCoveredBy = emptyList(),
                 )
             }
         } catch (e: Exception) {
@@ -559,26 +521,88 @@ RULES:
         }
     }
 
-    private fun buildProjectIdeas(
+    // --- LLM coverage analysis for gaps tab ------------------------------------
+
+    fun analyzeCoverageWithLlm() {
+        val state = _uiState.value
+        val papers = state.papers
+        val query = state.query
+        if (papers.isEmpty()) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(analyzing = true, thinkingText = "Analyzing coverage...") }
+
+            val paperSummaries = papers.take(8).mapIndexed { i, p ->
+                "${i + 1}. ${p.title}. ${p.abstract ?: "No abstract available."}"
+            }.joinToString("\n")
+
+            if (LlmRuntime.ready) {
+                _uiState.update { it.copy(thinkingText = "Reading papers and analyzing gaps...") }
+                val analysis = analyzeCoverageWithLlmImpl(query, paperSummaries)
+                _uiState.update { it.copy(coverageAnalysis = analysis, analyzing = false, thinkingText = "") }
+            } else {
+                _uiState.update { it.copy(coverageAnalysis = "", analyzing = false, thinkingText = "") }
+            }
+        }
+    }
+
+    private suspend fun analyzeCoverageWithLlmImpl(query: String, paperSummaries: String): String {
+        val prompt = """
+You are a dental research analyst. Analyze these papers against the search query.
+
+SEARCH QUERY: "$query"
+
+PAPERS RETRIEVED:
+$paperSummaries
+
+Write a clear coverage analysis covering:
+1. What the search query was asking about
+2. What the papers actually studied (in detail)
+3. What aspects of the query are well covered
+4. What important aspects are MISSING or poorly covered
+5. 3-4 specific research gaps that need future investigation
+
+Be specific and concrete. Use 3-4 paragraphs. Do NOT use JSON.
+        """.trimIndent()
+
+        return try {
+            LlmRuntime.chat("You are a dental research analyst. Write a clear analysis.", prompt)
+        } catch (e: Exception) {
+            Log.e("GAPS", "LLM coverage analysis failed: $e")
+            ""
+        }
+    }
+
+    private fun buildProjectIdeasFallback(
         subj: Subject,
         papers: List<Paper>,
-        covered: List<String>,
-        notCovered: List<String>,
     ): List<ProjectIdea> {
-        if (notCovered.isEmpty()) return emptyList()
-        return notCovered.take(3).map { kw ->
+        val topics = listOf(
+            "prevalence and risk factors",
+            "patient awareness and attitudes",
+            "comparative effectiveness",
+            "diagnostic accuracy",
+            "long-term outcomes",
+        )
+        val designs = listOf("Cross-sectional study", "Case-control study", "Prospective cohort study")
+        val instruments = listOf(
+            "questionnaire, clinical examination, caliper measurements",
+            "pH strips, plaque index scores, intraoral photographs",
+            "validated surveys, oral examination, ImageJ analysis",
+        )
+        return topics.take(3).mapIndexed { i, topic ->
             ProjectIdea(
-                title = "Exploring $kw in ${subj.name.lowercase()}: a cross-sectional study",
-                rationale = "The retrieved papers covered ${covered.take(5).joinToString(", ")} but none addressed $kw. This gap justifies a focused investigation.",
-                researchQuestion = "What is the prevalence or association of $kw among dental patients/students?",
-                hypothesis = "There is a significant association between $kw and the primary outcome.",
-                design = "Cross-sectional study",
-                population = "Dental students or OPD patients at a dental college in East Godavari",
-                primaryOutcome = "Measurement of $kw using validated instruments",
-                methods = "Questionnaire + clinical measurement. Calibrate on 10 participants. Collect data over 6 weeks.",
-                duration = "8-10 weeks",
-                feasibility = "Departmental equipment: questionnaire, clinical instruments, basic statistical software",
-                notCoveredBy = papers.take(3).mapNotNull { it.title },
+                title = "$topic in ${subj.name.lowercase()}: a cross-sectional study among dental patients",
+                rationale = "Existing papers cover the broad topic but lack data on $topic in this population. A focused study would fill this gap.",
+                researchQuestion = "What is the $topic among dental patients attending a teaching hospital in East Godavari?",
+                hypothesis = "There is a significant association between $topic and the primary outcome measure.",
+                design = designs[i % designs.size],
+                population = "150-200 dental patients (age 18-65) from the outpatient department, consecutive sampling over 4 weeks",
+                primaryOutcome = "$topic measured using validated instruments",
+                methods = "Obtain informed consent. Collect demographic data. Perform clinical examination using $topic. Record measurements on standardized proforma. Enter data in Excel. Analyse using SPSS/Chi-square/t-test.",
+                duration = "8-10 weeks total: 2 weeks preparation, 4 weeks data collection, 2-3 weeks analysis and write-up",
+                feasibility = "${instruments[i % instruments.size]}, basic departmental equipment, statistical software (SPSS/Excel)",
+                notCoveredBy = emptyList(),
             )
         }
     }

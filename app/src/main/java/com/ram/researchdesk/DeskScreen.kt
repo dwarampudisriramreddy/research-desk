@@ -332,7 +332,7 @@ private fun TabBody(ui: DeskUiState, viewModel: DeskViewModel, onSaveIdea: (Proj
                     TAB_LANDSCAPE -> LandscapeTab(ui = ui, viewModel = viewModel)
                     TAB_PAPERS -> PapersTab(ui = ui, viewModel = viewModel, onOpenUrl = onOpenUrl)
                     TAB_CLUSTERS -> ClustersTab(ui = ui, viewModel = viewModel)
-                    TAB_GAPS -> GapsTab(ui = ui)
+                    TAB_GAPS -> GapsTab(ui = ui, viewModel = viewModel)
                     TAB_PROJECTS -> ProjectsTab(ui = ui, viewModel = viewModel, onSaveIdea = onSaveIdea)
                     TAB_PROTOCOL -> ProtocolTab(ui = ui)
                 }
@@ -770,76 +770,17 @@ private fun ClusterCard(cluster: Cluster, papersById: Map<String?, Paper>, onCli
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GapsTab(ui: DeskUiState) {
+private fun GapsTab(ui: DeskUiState, viewModel: DeskViewModel) {
     val papers = ui.papers
     val query = ui.query
+    val coverageAnalysis = ui.coverageAnalysis
+    val analyzing = ui.analyzing
+
     if (papers.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Coverage analysis appears after retrieval.")
         }
         return
-    }
-
-    // Extract topics from the search query itself
-    val queryTerms = remember(query) {
-        val stop = setOf(
-            "the", "and", "for", "are", "but", "not", "with", "that", "this", "was", "were", "has", "have",
-            "from", "into", "also", "than", "been", "may", "can", "its", "their", "about", "between",
-            "among", "each", "other", "which", "what", "when", "where", "how", "who", "does", "did",
-            "will", "would", "could", "should", "might", "shall", "must",
-        )
-        query.lowercase()
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .split(Regex("\\s+"))
-            .filter { it.length > 3 && it !in stop }
-            .distinct()
-    }
-
-    // Extract meaningful terms from all paper titles + abstracts
-    val paperTerms = remember(papers) {
-        val allText = papers.joinToString(" ") { p ->
-            "${p.title} ${p.abstract ?: ""}"
-        }.lowercase()
-        val words = allText.replace(Regex("[^a-z0-9\\s]"), " ").split(Regex("\\s+")).filter { it.length > 3 }
-        val bigrams = words.windowed(2).map { it.joinToString(" ") }
-        val trigrams = words.windowed(3).map { it.joinToString(" ") }
-        val freq = linkedMapOf<String, Int>()
-        trigrams.forEach { freq[it] = (freq[it] ?: 0) + 4 }
-        bigrams.forEach { freq[it] = (freq[it] ?: 0) + 2 }
-        words.forEach { freq[it] = (freq[it] ?: 0) + 1 }
-        freq.entries.sortedByDescending { it.value }.take(30).map { it.key }
-    }
-
-    // What the query asked about vs what papers actually cover
-    val coveredQueryTerms = remember(queryTerms, papers) {
-        val allText = papers.joinToString(" ") { "${it.title} ${it.abstract ?: ""}" }.lowercase()
-        queryTerms.filter { allText.contains(it) }
-    }
-    val missingQueryTerms = remember(queryTerms, coveredQueryTerms) {
-        queryTerms.filter { it !in coveredQueryTerms }
-    }
-
-    // What aspects the papers touch (from paper content)
-    val coveredAspects = remember(papers) {
-        papers.flatMap { p ->
-            val blob = "${p.title} ${p.abstract ?: ""} ${p.studyDesign ?: ""}".lowercase()
-            buildList {
-                if (blob.contains("prevalence") || blob.contains("incidence")) add("prevalence/incidence")
-                if (blob.contains("association") || blob.contains("correlation")) add("association")
-                if (blob.contains("comparison") || blob.contains("versus") || blob.contains(" compared ")) add("comparison")
-                if (blob.contains("systematic") || blob.contains("review") || blob.contains("meta-analysis")) add("systematic review")
-                if (blob.contains("cross-sectional") || blob.contains("survey")) add("cross-sectional")
-                if (blob.contains("case-control") || blob.contains("cohort")) add("case-control/cohort")
-                if (blob.contains("india") || blob.contains("indian")) add("Indian population")
-                if (blob.contains("children") || blob.contains("pediatric") || blob.contains("adolescent")) add("children/adolescents")
-                if (blob.contains("adult") || blob.contains("elderly")) add("adults/elderly")
-                if (blob.contains("knowledge") || blob.contains("attitude") || blob.contains("practice")) add("KAP")
-                if (blob.contains("risk factor") || blob.contains("protective")) add("risk/protective factors")
-                if (blob.contains("diagnosis") || blob.contains("detection") || blob.contains("screening")) add("diagnosis/screening")
-                if (blob.contains("treatment") || blob.contains("therapy") || blob.contains("management")) add("treatment/management")
-                if (blob.contains("awareness") || blob.contains("aware")) add("awareness")
-            }
-        }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key }
     }
 
     LazyColumn(
@@ -864,133 +805,39 @@ private fun GapsTab(ui: DeskUiState) {
                     )
 
                     Spacer(Modifier.height(10.dp))
-                    Text("What your query asked about:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                    Spacer(Modifier.height(4.dp))
-                    if (coveredQueryTerms.isNotEmpty()) {
-                        Text("Found in papers:", fontSize = 11.sp, color = Color(0xFF2E7D32))
-                        Spacer(Modifier.height(2.dp))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            coveredQueryTerms.forEach { kw ->
-                                Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF2E7D32).copy(alpha = 0.10f)) {
-                                    Text(kw, fontSize = 10.sp, color = Color(0xFF2E7D32), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                            }
+
+                    if (coverageAnalysis.isNotEmpty()) {
+                        Text(coverageAnalysis, fontSize = 12.sp, lineHeight = 18.sp)
+                    } else if (analyzing) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Analyzing papers with AI...", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    }
-                    if (missingQueryTerms.isNotEmpty()) {
+                    } else {
+                        Button(
+                            onClick = { viewModel.analyzeCoverageWithLlm() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Analyze coverage with AI")
+                        }
                         Spacer(Modifier.height(4.dp))
-                        Text("NOT found in any paper:", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.height(2.dp))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            missingQueryTerms.forEach { kw ->
-                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer) {
-                                    Text(kw, fontSize = 10.sp, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                            }
-                        }
+                        Text(
+                            "Tap to analyze what the papers covered vs what your query asked about.",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-
-                    if (coveredAspects.isNotEmpty()) {
-                        Spacer(Modifier.height(10.dp))
-                        Text("What the papers actually study:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                        Spacer(Modifier.height(4.dp))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            coveredAspects.forEach { aspect ->
-                                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-                                    Text(aspect, fontSize = 10.sp, color = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-                    Text("Key terms across all papers:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                    Spacer(Modifier.height(4.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        paperTerms.take(15).forEach { term ->
-                            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                                Text(term, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Text("Per-paper coverage", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp))
-        }
-        items(papers) { paper -> PaperCoverageCard(paper = paper, queryTerms = queryTerms) }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PaperCoverageCard(paper: Paper, queryTerms: List<String>) {
-    var expanded by remember { mutableStateOf(false) }
-    val blob = remember(paper) {
-        "${paper.title} ${paper.abstract ?: ""}".lowercase()
-    }
-    val covered = remember(blob, queryTerms) { queryTerms.filter { blob.contains(it) } }
-    val notCovered = remember(blob, queryTerms) { queryTerms.filter { !blob.contains(it) } }
-
-    Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
-        colors = CardDefaults.cardColors(),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(14.dp),
-        ) {
-            Text(paper.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = listOfNotNull(paper.year?.toString(), paper.journal, paper.studyDesign).joinToString(" \u00B7 "),
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(6.dp))
-            if (covered.isNotEmpty()) {
-                Text("Covers:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Color(0xFF2E7D32))
-                Spacer(Modifier.height(2.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    covered.forEach { kw ->
-                        Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFF2E7D32).copy(alpha = 0.10f)) {
-                            Text(kw, fontSize = 9.sp, color = Color(0xFF2E7D32), modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
-                        }
-                    }
-                }
-            }
-            if (notCovered.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                Text("Doesn't cover:", fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.height(2.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    notCovered.forEach { kw ->
-                        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.errorContainer) {
-                            Text(kw, fontSize = 9.sp, color = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
-                        }
-                    }
-                }
-            }
-            AnimatedVisibility(visible = expanded) {
-                Column {
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = paper.abstract ?: "No abstract available.",
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
             }
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Projects tab — ideas from coverage gaps
 // ---------------------------------------------------------------------------
 // Projects tab — ideas from coverage gaps
 // ---------------------------------------------------------------------------
